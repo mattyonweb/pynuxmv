@@ -46,7 +46,7 @@ class MyVisitor(ast.NodeTransformer):
 
             
     def visit_Assign(self, node):
-        """ x = 4 + 5 """
+        """ x = 0 """
         var_name = node.targets[0].id
         value    = self.visit(node.value)
 
