@@ -45,7 +45,7 @@ for fname in srcs:
         print(f"{fname} ha funzionato ma doveva fallire")
         for match in res:
             print(f"\t{match.group()}")
-        with open(".{out_fname}.log", "w") as f:
+        with open(f".{out_fname}.log", "w") as f:
             f.write(stdout)
 
     else:
