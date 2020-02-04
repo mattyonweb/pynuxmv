@@ -4,11 +4,23 @@
 
 ## Installation
 
-### Requirements
+`pynuXmv` requires `nuXmv` 2.0.0 (but should work with any version `>= 2.0.0`) and `python >=3.8`.
 
-`pynuXmv` was developed in Python 3.8 and using nuXmv 2.0.0.
+To install it,
 
-TODO
+	pip install pynuxmv
+	
+	
+	
+## Execution
+
+From a shell, launch:
+
+	pynuXmv <python_fname> <nuxmv_out_fname>
+	
+This will transpile `python_fname` and save the result into `nuxmv_out_fname`.
+
+
 
 ## Examples
 
@@ -89,6 +101,7 @@ This nuXmv file can be run with:
 	
 where `cmd_ltl` (or, for invariant checking, the equivalent `cmd_invar`) can be found in this repository.
 
+
 ## Limitations
 
 Up to now, this simple script has many limitations:
@@ -98,4 +111,4 @@ Up to now, this simple script has many limitations:
 + No support for higher structures (i.e. function calls, classes...)
 + No support for concurrent execution and/or `nuXmv` modules
 
-It's not (it shouldn't) be difficult to implement some of these things, but it takes some time to do it.
+It's not (it shouldn't) be difficult to implement some of these things, but it will take some time to do it.
