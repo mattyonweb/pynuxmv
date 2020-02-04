@@ -1,5 +1,5 @@
-import ast, sys, os
-import contextlib, io
+import ast, sys, os, re
+import contextlib
 from collections import namedtuple
 from typing import Dict, List, NewType, Tuple, Union, Any
 
@@ -81,7 +81,9 @@ class MyVisitor(ast.NodeTransformer):
 
         
     def visit_BinOp(self, node):
-        ops = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*"}
+        ops = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*",
+               ast.Mod: "mod", ast.FloorDiv: "/"
+        }
         left  = self.visit(node.left)
         right = self.visit(node.right)
 
@@ -102,7 +104,16 @@ class MyVisitor(ast.NodeTransformer):
         
         print(f"{left} {op} {right}")
         return f"{left} {op} {right}"
-        
+
+    def visit_BoolOp(self, node):
+        conv_str = {
+            ast.Or : "|", ast.And: "&"
+        }
+        op = node.op
+        arg1, arg2 = [self.visit(arg) for arg in node.values]
+
+        return f"{arg1} {conv_str[type(op)]} {arg2}"
+            
         
     def visit_While(self, node):
         print("While: ", end="")
@@ -160,24 +171,23 @@ class MyVisitor(ast.NodeTransformer):
         # self.update_counter()
         
 
-    
-    def is_invarspec(self, node) -> Union[bool, str]:
+    def is_the_function(self, fname, node):
         try:
-            if not node.value.func.id == "invarspec":
+            if not node.value.func.id == fname:
                 return False
         except AttributeError:
             return False
-
-        return node.value.args[0].value
+        return True
+        
+    def is_invarspec(self, node) -> Union[bool, str]:
+        if self.is_the_function("invarspec", node):
+            return node.value.args[0].value
+        return False
 
     def is_ltlspec(self, node) -> Union[bool, str]:
-        try:
-            if not node.value.func.id == "ltlspec":
-                return False
-        except AttributeError:
-            return False
-
-        return node.value.args[0].value
+        if self.is_the_function("ltlspec", node):
+            return node.value.args[0].value
+        return False
     
     def visit_Expr(self, node):
         if invar := self.is_invarspec(node):
@@ -188,6 +198,11 @@ class MyVisitor(ast.NodeTransformer):
             self.generic_visit(node)
 
             
+    def visit_ImportFrom(self, node):
+        pass
+
+    ###############################################
+    
     def line_flow(self) -> str:
         out = "next(line) := case\n"
         
@@ -250,23 +265,40 @@ class MyVisitor(ast.NodeTransformer):
 
 mv = MyVisitor()
 
+# placeholders for specs declaration & co.
 def invarspec(_: str):
     pass
 def ltlspec(_: str):
     pass
+def start_nuxmv():
+    pass
+def end_nuxmv():
+    pass
 
-ex = "5 % 6"
+ex = """
+if a:
+  
+  start_nuxmv()
+  dump(2, "lol")
 
-import contextlib
+  end_nuxmv()
+
+print(1)
+"""
+
+
 @contextlib.contextmanager
 def nostdout():
+    """ Redirect stdout to /dev/null """
     save_stdout = sys.stdout
-    sys.stdout = io.BytesIO()
+    sys.stdout = open(os.devnull, "w")
     yield
     sys.stdout = save_stdout
     
 
-def run(code, fname_out="out.smv", quiet=True):
+        
+def run_single(code, fname_out="out.smv", quiet=True):
+    """ Transpiles the given `code` and saves it to file. """ 
     mv = MyVisitor()
 
     def runner():
@@ -280,11 +312,50 @@ def run(code, fname_out="out.smv", quiet=True):
             return runner()
     else:
         return runner()
+
+
     
+def nuxmv_blocks(code):
+    """ Given the `entire` source code, finds the blocks that are
+    enclosed by `start_nuxmv()` and `end_nuxmv()`, if any. Then,
+    returns these blocks. """
+    regex  = re.compile(r"^\s*?start_nuxmv\(\).*?end_nuxmv\(\)", re.DOTALL | re.M)
+    blocks = regex.findall(code)
+    
+    if len(blocks) == 0:
+        return [] # no block found (aka. consider entire src code)
+
+    # sanitize (remove harmful identation)
+    out_blocks = list()
+    for block in blocks:
+        lines = [line for line in block.split("\n") if len(line) > 0]
+        first_statement = lines[0]
+        indent = len(first_statement) - len(first_statement.lstrip())
+        lines = [line[indent:] for line in lines]
+
+        out_blocks.append("\n".join(lines))
+
+    return out_blocks
+
+    
+def run(code, fname_out="out.smv", quiet=True):
+    results = list()
+    found   = nuxmv_blocks(code)
+
+    if len(found) == 0:
+        return ([fname_out], [run_single(code, fname_out, quiet)])
+
+    fnames_generated = list()
+    for i, block in enumerate(found):
+        fname_out__ = f"{fname_out}{i}"
+        results.append(run_single(block, fname_out__, quiet))
+        fnames_generated.append(fname_out__)
+
+    return (fnames_generated, results)
+        
 # run(ex)
 
 import astpretty
 def pp(src):
     astpretty.pprint(ast.parse(src), show_offsets=False)
 
-pp(ex)
