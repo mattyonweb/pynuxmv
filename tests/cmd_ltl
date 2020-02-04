@@ -1,0 +1,3 @@
+go_msat
+check_ltlspec_ic3 -v0 
+quit

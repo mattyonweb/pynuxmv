@@ -1,4 +1,5 @@
-import ast
+import ast, sys, os
+import contextlib, io
 from collections import namedtuple
 from typing import Dict, List, NewType, Tuple, Union, Any
 
@@ -254,55 +255,36 @@ def invarspec(_: str):
 def ltlspec(_: str):
     pass
 
+ex = "5 % 6"
 
-ex = """
-i = 0
-while (i < 10):
-    i += 3
-invarspec("i < 10")
-"""
+import contextlib
+@contextlib.contextmanager
+def nostdout():
+    save_stdout = sys.stdout
+    sys.stdout = io.BytesIO()
+    yield
+    sys.stdout = save_stdout
+    
 
-ex = """
-i = 1
-j = 0
-while (i < 10):
-    i = i + j
-    j = i + 1
-invarspec("i + j < 20")
-"""
-
-ex = """
-i = 0
-j = 0
-while (i < 10):
-    i += 1
-    if (i < 3):
-        j = j + 1
-invarspec("j < 3")
-invarspec("i = 10")
-"""
-
-ex = """
-i = 0
-j = 0
-if i == 0:
-  if j == 0:
-    i = 0
-i = 99
-ltlspec("AF i = 99")
-"""
-
-
-def run(code, fname_out="out.smv"):
+def run(code, fname_out="out.smv", quiet=True):
     mv = MyVisitor()
-    mv.visit(ast.parse(code))
-    open(fname_out, "w").write(mv.transpile())
-    print()
-    return mv
 
-run(ex)
+    def runner():
+        mv.visit(ast.parse(code))
+        open(fname_out, "w").write(mv.transpile())
+        print()
+        return mv
+
+    if quiet:
+        with nostdout():
+            return runner()
+    else:
+        return runner()
+    
+# run(ex)
 
 import astpretty
 def pp(src):
     astpretty.pprint(ast.parse(src), show_offsets=False)
 
+pp(ex)
