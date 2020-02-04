@@ -352,10 +352,13 @@ def run(code, fname_out="out.smv", quiet=True):
         fnames_generated.append(fname_out__)
 
     return (fnames_generated, results)
-        
-# run(ex)
 
-import astpretty
 def pp(src):
-    astpretty.pprint(ast.parse(src), show_offsets=False)
+    try:
+        import astpretty
+        astpretty.pprint(ast.parse(src), show_offsets=False)
+    except ImportError:
+        print("Warning: couldn't find module 'astpretty'; falling back to ast.dump()")
+        ast.dump(ast.parse(src))
+    
 
