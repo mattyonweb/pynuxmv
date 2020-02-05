@@ -428,19 +428,6 @@ def pp(src):
         ast.dump(ast.parse(src))
     
 
-
-ex = """
-i = 5
-b: bool = False
-
-while (not (b == True)):
-  i -= 1
-  if i == 0:
-    b = True
-
-ltlspec("F i = 0")
-"""
-
 ex = """
 b: bool = False
 x = 0
