@@ -79,6 +79,8 @@ class MyVisitor(ast.NodeTransformer):
         self.NEXTS[var_name].append(
             Assign(self.counter, f"{var_name} + {val}"))
 
+        return f"{var_name} += {val}"
+
         
     def visit_BinOp(self, node):
         ops = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*",
@@ -104,6 +106,7 @@ class MyVisitor(ast.NodeTransformer):
         
         print(f"{left} {op} {right}")
         return f"{left} {op} {right}"
+
 
     def visit_BoolOp(self, node):
         conv_str = {
@@ -159,16 +162,13 @@ class MyVisitor(ast.NodeTransformer):
 
             self.FLOW.append(
                 IfElse(test, start_line, last_of_if, self.counter))
-                # ("if-else", test, lineno, last_of_if, self.counter + 1) )
 
             self.update_counter()
             
         else:
             self.FLOW.append(
                 If(test, start_line, last_of_if))
-                # ("if-noelse", test, lineno, self.counter + 1) )
 
-        # self.update_counter()
         
 
     def is_the_function(self, fname, node):
@@ -194,10 +194,64 @@ class MyVisitor(ast.NodeTransformer):
             self.INVARS.append(invar)
         elif ltl := self.is_ltlspec(node):
             self.LTLS.append(ltl)
+        elif isinstance(node.value, ast.UnaryOp):
+            assert isinstance(node.value.op, ast.USub), "not USub()!"
+            return f"(- {self.visit(node.value.operand)})"
         else:
             self.generic_visit(node)
 
-            
+    def translate_range(self, node):
+        pass
+
+    def visit_UnaryOp(self, node):
+        assert isinstance(node.op, ast.USub), "not USub()!"
+        return f"(- {self.visit(node.operand)})"
+    
+    def visit_For(self, node):
+        var_name = node.target.id
+        
+        assert node.iter.func.id == "range", "for doesn't use range()"
+        range_args = node.iter.args
+        if len(range_args) == 1:
+            a, b, s = 0, self.visit(range_args[0]), 1
+            comparison = ast.Lt()
+        elif len(range_args) == 2:
+            a, b, s = self.visit(range_args[0]), self.visit(range_args[1]), 1
+            comparison = ast.Lt()
+        else:
+            print(range_args[2])
+            a, b, s = self.visit(range_args[0]), self.visit(range_args[1]), self.visit(range_args[2])
+            comparison = ast.Gt()
+
+        increment_ast = ast.AugAssign(
+            target=ast.Name(id=var_name, ctx=ast.Store()),
+            op=ast.Add(),
+            value=ast.Constant(value=s, kind=None),
+        )
+        
+        while_translation = [
+            ast.Assign(
+                targets=[ast.Name(id=var_name, ctx=ast.Store())],
+                value=ast.Constant(value=a, kind=None),
+                type_comment=None,
+            ),
+            ast.While(
+                test=ast.Compare(
+                    left=ast.Name(id=var_name, ctx=ast.Load()),
+                    ops=[comparison],
+                    comparators=[ast.Constant(value=b, kind=None)],
+                ),
+                body=node.body + [increment_ast],
+                orelse=[],
+            ),
+        ]
+
+        for cmd in while_translation:
+            self.update_counter()
+            print("\t", end="")
+            self.visit(cmd)
+
+        
     def visit_ImportFrom(self, node):
         pass
 
@@ -276,16 +330,17 @@ def end_nuxmv():
     pass
 
 ex = """
-if a:
-  
-  start_nuxmv()
-  dump(2, "lol")
+from pynuxmv.main import *
 
-  end_nuxmv()
+i = 28
 
-print(1)
+for x in range(10, 2, -2):
+    i += -x
+
+ltlspec("F i = 0")
 """
 
+# ex = "x += -1"
 
 @contextlib.contextmanager
 def nostdout():

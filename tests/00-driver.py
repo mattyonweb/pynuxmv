@@ -20,7 +20,8 @@ expected = {
     "02-example-invarspec.xmv": "fail",
     "03-example-ltl.xmv": "pass",
     "04-example-ltl.xmv": "pass",
-    "05-example-ltl.xmv0": "pass"
+    "05-example-ltl.xmv0": "pass",
+    "06-example-ltl.xmv": "pass",
 }
 
 for fname in srcs:

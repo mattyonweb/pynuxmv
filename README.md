@@ -2,6 +2,7 @@
 
 `pynuXmv` is a small utility capable of transpiling a subset of [Python](https://www.python.org/) to [`nuXmv`](https://nuxmv.fbk.eu/) specification code.
 
+
 ## Installation
 
 `pynuXmv` requires `nuXmv` 2.0.0 (but should work with any version `>= 2.0.0`) and `python >=3.8`.
