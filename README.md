@@ -102,7 +102,6 @@ This nuXmv file can be run with:
 	
 where `cmd_ltl` (or, for invariant checking, the equivalent `cmd_invar`) can be found in this repository.
 
-
 ## Limitations
 
 Up to now, this simple script has many limitations:
@@ -113,3 +112,38 @@ Up to now, this simple script has many limitations:
 + No support for concurrent execution and/or `nuXmv` modules
 
 It's not (it shouldn't) be difficult to implement some of these things, but it will take some time to do it.
+
+___
+
+## Basic tutorial
+
+The following assumes that you are examining a portion of "self-contained" code (ie. code that doesn't reference variables and/or functions defined outside of such portion) that is within the limitations listed before. 
+
+Let's look at an example:
+
+	... (other code) ...
+	start_nuxmv()
+	
+	b: bool = False
+	x = 0
+	
+	while (x < 10 and not b):
+		x += 1
+	
+	ltlspec("F x = 10")
+	invarspec("!b")
+	
+	end_nuxmv()
+	... (other code) ...
+		
+Let's notice some things:
+
++ The block of code that we want to isolate and test is enclosed within two functions, `start_nuxmv()` and `end_nuxmv()`. These functions do nothing, they are just placeholders. There can be as many of these functions as you like, but they should not be nested.
+
++ `b` is a boolean; this information needs to be specified in order to distinguish it from an `integer`, the default type assumed by `pynuxmv`.
+
++ At the end of the block you specify the conditions you want your program to comply with. These can be of two kinds, `LTL` formulas (`ltlspec`) or invariants (`invarspec`). More informations on LTL can be found on [wikipedia](https://en.wikipedia.org/wiki/Linear_temporal_logic). 
+
+	
+
+

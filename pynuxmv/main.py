@@ -40,9 +40,10 @@ class MyVisitor(ast.NodeTransformer):
         
     def visit_Name(self, node) -> str:
         return node.id
-
     
     def visit_Constant(self, node) -> Any:
+        if node.value in [True, False]:
+            return str(node.value).upper()
         return node.value
 
     
@@ -66,26 +67,45 @@ class MyVisitor(ast.NodeTransformer):
             
         print( f"{var_name} := {value}")
 
+    def visit_AnnAssign(self, node):
+        var_name = node.target.id
+        value    = self.visit(node.value)
+        type__   = self.visit(node.annotation)
+
+        types = {"bool": "boolean", "int": "integer"}
+        
+        if var_name not in self.VAR:
+            self.VAR[var_name] = types[type__]
+            self.INIT[var_name] = value
+            self.NEXTS[var_name] = list()
+        else:
+            self.NEXTS[var_name].append(Assign(self.counter, value))
+            
+        print( f"{var_name} := {value}")
+
         
     def visit_AugAssign(self, node):
-        var_name = node.target.id
-        if not isinstance(node.op, ast.Add):
-            raise Exception(f"{node.op} not implemented")
-        op  = node.op
-        val = self.visit(node.value)
-
-        print(f"{var_name} += {val}")
-
-        self.NEXTS[var_name].append(
-            Assign(self.counter, f"{var_name} + {val}"))
-
-        return f"{var_name} += {val}"
+        """ x *= y is the same as x = x * y """
+        variable_store = node.target
+        variable_load  = node.target
+        variable_load.ctx = ast.Load()
+        return self.visit(
+            ast.Assign(
+                targets=[variable_store],
+                value=ast.BinOp(
+                    left=variable_load,
+                    op=node.op,
+                    right=node.value,
+                ),
+                type_comment=None,
+            )
+        )
 
         
     def visit_BinOp(self, node):
         ops = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*",
-               ast.Mod: "mod", ast.FloorDiv: "/"
-        }
+               ast.Mod: "mod", ast.FloorDiv: "/" }
+        
         left  = self.visit(node.left)
         right = self.visit(node.right)
 
@@ -93,11 +113,19 @@ class MyVisitor(ast.NodeTransformer):
 
         return f"{left} {ops[type(node.op)]} {right}"
 
+    
+    def visit_UnaryOp(self, node):
+        conv_str = {
+            ast.UAdd: "+", ast.USub: "-", ast.Not: "!"
+        }
         
+        return f"({conv_str[type(node.op)]} {self.visit(node.operand)})"
+
+    
     def visit_Compare(self, node) -> str:
         conv_str = {
             ast.Lt: "<", ast.Gt: ">", ast.LtE: "<=",
-            ast.Eq: "=", ast.GtE: ">="
+            ast.Eq: "=", ast.GtE: ">=", ast.NotEq: "!="
         }
 
         left  = self.visit(node.left)
@@ -200,12 +228,6 @@ class MyVisitor(ast.NodeTransformer):
         else:
             self.generic_visit(node)
 
-    def translate_range(self, node):
-        pass
-
-    def visit_UnaryOp(self, node):
-        assert isinstance(node.op, ast.USub), "not USub()!"
-        return f"(- {self.visit(node.operand)})"
     
     def visit_For(self, node):
         var_name = node.target.id
@@ -329,18 +351,7 @@ def start_nuxmv():
 def end_nuxmv():
     pass
 
-ex = """
-from pynuxmv.main import *
 
-i = 28
-
-for x in range(10, 2, -2):
-    i += -x
-
-ltlspec("F i = 0")
-"""
-
-# ex = "x += -1"
 
 @contextlib.contextmanager
 def nostdout():
@@ -417,3 +428,27 @@ def pp(src):
         ast.dump(ast.parse(src))
     
 
+
+ex = """
+i = 5
+b: bool = False
+
+while (not (b == True)):
+  i -= 1
+  if i == 0:
+    b = True
+
+ltlspec("F i = 0")
+"""
+
+ex = """
+b: bool = False
+x = 0
+
+while (x < 10 and not b):
+  x += 1
+
+ltlspec("F x = 10")
+
+"""	
+# ex = "x += -1"

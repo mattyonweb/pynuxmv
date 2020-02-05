@@ -22,6 +22,7 @@ expected = {
     "04-example-ltl.xmv": "pass",
     "05-example-ltl.xmv0": "pass",
     "06-example-ltl.xmv": "pass",
+    "07-example-ltl.xmv": "pass",
 }
 
 for fname in srcs:
