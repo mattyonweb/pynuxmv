@@ -6,7 +6,8 @@ with open("README.md", "r") as f:
 setuptools.setup(
     name="pynuxmv",
     long_description=long_desc,
-    version="0.1.0",
+    long_description_content_type="text/markdown",
+    version="0.1.01",
     author="Matteo Cavada",
     author_email="cvd00@insicuri.net",
     description="Transpile Python to nuXmv source code",
@@ -24,7 +25,6 @@ setuptools.setup(
     classifiers=[
         "Development Status :: 2 - Pre-Alpha",
         "Operating System :: POSIX :: Linux",
-        "Programming Language :: Other",
         "Programming Language :: Python :: 3.8",
         "Topic :: Software Development :: Testing"
     ],

@@ -11,8 +11,10 @@ IfElse = namedtuple("IfElse", ["test", "loc_test", "loc_last_if", "loc_last"])
 
 Assign = namedtuple("Assign", ["loc", "expr"])
 
+from functools import wraps
+        
 class MyVisitor(ast.NodeTransformer):
-    def __init__(self):
+    def __init__(self, quiet=True):
         self.counter: LineNo = LineNo(0) #for line number
         self.VAR:   Dict[str, str]  = dict()
         self.INIT:  Dict[str, Any]  = dict()
@@ -20,6 +22,25 @@ class MyVisitor(ast.NodeTransformer):
         self.FLOW:  List[FlowInfo] = list()
         self.INVARS: List[str]     = list()
         self.LTLS: List[str]       = list()
+
+        self.quiet: bool = quiet
+        self.debug: List[str] = list()
+
+        
+    def debug_decorator(foo):
+        def inner(*args):
+            self = args[0]
+            res = foo(*args)
+            if res is None:
+                self.debug.append( (self.counter, " "))
+                if not self.quiet:
+                    print(f"{self.counter}\t ")
+            else:
+                self.debug.append( (self.counter, res) )
+                if not self.quiet:
+                    print(f"{self.counter}\t{res} ")
+            return res
+        return inner
         
     def update_counter(self):
         self.counter += 1
@@ -37,7 +58,7 @@ class MyVisitor(ast.NodeTransformer):
 
         return "unknown"
 
-        
+
     def visit_Name(self, node) -> str:
         return node.id
     
@@ -46,13 +67,23 @@ class MyVisitor(ast.NodeTransformer):
             return str(node.value).upper()
         return node.value
 
-    
     def visit_Module(self, node):
         for cmd in node.body:
             self.update_counter()
             self.visit(cmd)
 
+
+    # def visit_List(self, node):
+    #     if len(node.elts) == 0:
             
+    #     template = "WRITE({}, {}, {})"
+    #     out      = template
+        
+    #     for i, el in enumerate(node.elts):
+    #         visited_el = self.visit(el)
+    #         out.format(template
+        
+    @debug_decorator        
     def visit_Assign(self, node):
         """ x = 0 """
         var_name = node.targets[0].id
@@ -66,13 +97,19 @@ class MyVisitor(ast.NodeTransformer):
             self.NEXTS[var_name].append(Assign(self.counter, value))
             
         print( f"{var_name} := {value}")
+        return( f"{var_name} := {value}")
 
+
+    @debug_decorator
     def visit_AnnAssign(self, node):
         var_name = node.target.id
         value    = self.visit(node.value)
         type__   = self.visit(node.annotation)
 
-        types = {"bool": "boolean", "int": "integer"}
+        types = {
+            "bool": "boolean", "int": "integer",
+            "list": "array integer of integer"     
+        }
         
         if var_name not in self.VAR:
             self.VAR[var_name] = types[type__]
@@ -82,8 +119,9 @@ class MyVisitor(ast.NodeTransformer):
             self.NEXTS[var_name].append(Assign(self.counter, value))
             
         print( f"{var_name} := {value}")
+        return f"{var_name} := {value}"
 
-        
+    @debug_decorator
     def visit_AugAssign(self, node):
         """ x *= y is the same as x = x * y """
         variable_store = node.target
@@ -144,12 +182,15 @@ class MyVisitor(ast.NodeTransformer):
         arg1, arg2 = [self.visit(arg) for arg in node.values]
 
         return f"{arg1} {conv_str[type(op)]} {arg2}"
-            
-        
+
+    
+    @debug_decorator
     def visit_While(self, node):
         print("While: ", end="")
         test = self.visit(node.test)
-        
+        self.debug.append( (self.counter, f"While {test}") )
+
+
         start_line = self.counter
 
         for cmd in node.body:
@@ -162,12 +203,14 @@ class MyVisitor(ast.NodeTransformer):
         # ("while", test, start_line, end_line) )
 
         self.update_counter() #"spazio bianco" dopo lo while per gestire i salti
-
         
+        
+    @debug_decorator
     def visit_If(self, node):
-        print("If: ", end="")
         test = self.visit(node.test)
-
+        print(f"If {test}:\n")
+        self.debug.append( (self.counter, f"If {test}") )
+        
         start_line = self.counter
 
         # IF
@@ -182,6 +225,7 @@ class MyVisitor(ast.NodeTransformer):
         # ELSE (se c'è)
         if len(node.orelse) > 0:
             print("Else: ")
+            self.debug.append( (self.counter, f"Else") )
             
             for cmd in node.orelse:
                 self.update_counter()
@@ -216,7 +260,8 @@ class MyVisitor(ast.NodeTransformer):
         if self.is_the_function("ltlspec", node):
             return node.value.args[0].value
         return False
-    
+
+    @debug_decorator
     def visit_Expr(self, node):
         if invar := self.is_invarspec(node):
             self.INVARS.append(invar)
@@ -226,10 +271,19 @@ class MyVisitor(ast.NodeTransformer):
             assert isinstance(node.value.op, ast.USub), "not USub()!"
             return f"(- {self.visit(node.value.operand)})"
         else:
-            self.generic_visit(node)
+            return self.generic_visit(node)
 
-    
+    @debug_decorator
     def visit_For(self, node):
+        """  for x in range(a, b, c)
+
+        is equal to:
+
+             x := a
+             while (x < b): #x > b in case c < 0
+               ...
+               x += c
+        """
         var_name = node.target.id
         
         assert node.iter.func.id == "range", "for doesn't use range()"
@@ -277,6 +331,10 @@ class MyVisitor(ast.NodeTransformer):
     def visit_ImportFrom(self, node):
         pass
 
+    def debug_dump(self):
+        for k, v in self.debug:
+            print(k, "\t", v)
+            
     ###############################################
     
     def line_flow(self) -> str:
@@ -339,7 +397,6 @@ class MyVisitor(ast.NodeTransformer):
     
 ######################################################
 
-mv = MyVisitor()
 
 # placeholders for specs declaration & co.
 def invarspec(_: str):
@@ -350,7 +407,6 @@ def start_nuxmv():
     pass
 def end_nuxmv():
     pass
-
 
 
 @contextlib.contextmanager
@@ -429,13 +485,22 @@ def pp(src):
     
 
 ex = """
-b: bool = False
-x = 0
+a = 0
+b = 0
+while (a + b < 2):
+  if b == 0 and a == 1:
+        b = 1  
+  else:
+        if b == 1 and a == 1:
+          b = 0  
+  if a == 1:
+        a = 0
+  else:
+        a = 1
 
-while (x < 10 and not b):
-  x += 1
+ltlspec("F (a = 1 & b = 1)")
+# ltlspec("(a = 0 & b = 0) -> F (a = 1 & b = 0)")
+# ltlspec("(a = 1 & b = 0) -> F (a = 0 & b = 1)")
+# ltlspec("(a = 0 & b = 1) -> F (a = 1 & b = 1)")
 
-ltlspec("F x = 10")
-
-"""	
-# ex = "x += -1"
+"""

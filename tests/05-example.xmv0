@@ -1,0 +1,44 @@
+MODULE main
+
+VAR
+a: integer;
+b: integer;
+line: integer;
+
+ASSIGN
+init(a) := 0;
+init(b) := 0;
+init(line) := 1;
+
+next(line) := case
+	line = 8 & b = 1 & a = 1: line + 1; -- if(True)
+	line = 8: 11; -- if(False)
+	line = 5 & b = 0 & a = 1: line + 1; -- if(True)
+	line = 6: 12; -- end if(True) 
+	line = 5: 8; -- else
+	line = 12 & a = 1: line + 1; -- if(True)
+	line = 13: 17; -- end if(True) 
+	line = 12: 15; -- else
+	line = 4 & a + b < 2: line + 1; -- while(True)
+	line = 4:  18; -- while(False)
+	line = 17: 4; -- loop while
+	line = 22: 22; 
+	TRUE: line + 1; 
+esac;
+
+next(a) := case
+	line = 13: 0;
+	line = 15: 1;
+	TRUE: a; 
+esac;
+
+next(b) := case
+	line = 6: 1;
+	line = 9: 0;
+	TRUE: b; 
+esac;
+
+LTLSPEC F (a = 1 & b = 1);
+LTLSPEC (a = 0 & b = 0) -> F (a = 1 & b = 0);
+LTLSPEC (a = 1 & b = 0) -> F (a = 0 & b = 1);
+LTLSPEC (a = 0 & b = 1) -> F (a = 1 & b = 1);

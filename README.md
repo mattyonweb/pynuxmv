@@ -106,12 +106,14 @@ where `cmd_ltl` (or, for invariant checking, the equivalent `cmd_invar`) can be 
 
 Up to now, this simple script has many limitations:
 
-+ No support for `for` construct
-+ No support for types other than `integer` (no bounded integer, no words, no bitvectors, no arrays)
++ Limited support for `for` construct (only with numeric `range()`s)
++ No support for types other than `integer` and `boolean` (no bounded integer, no words, no bitvectors, no arrays)
 + No support for higher structures (i.e. function calls, classes...)
 + No support for concurrent execution and/or `nuXmv` modules
 
 It's not (it shouldn't) be difficult to implement some of these things, but it will take some time to do it.
+
+Also, take a look at the `TODO.md` file for other thing that can (not) be done up to now.
 
 ___
 
@@ -144,6 +146,7 @@ Let's notice some things:
 
 + At the end of the block you specify the conditions you want your program to comply with. These can be of two kinds, `LTL` formulas (`ltlspec`) or invariants (`invarspec`). More informations on LTL can be found on [wikipedia](https://en.wikipedia.org/wiki/Linear_temporal_logic). 
 
++ Finally: how do you test this portion of code? You simply run `pynuXmv` with the name of the source `.py` file to analyze and with the file name of the resulting `nuXmv` source code. You then launch `nuXmv` on these latter file, with an appropriate commands file (such as `unify`, which you can find in this repository).
 	
 
 
