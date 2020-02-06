@@ -96,10 +96,13 @@ class MyVisitor(ast.NodeTransformer):
             self.VAR[var_name] = "integer"
             self.INIT[var_name] = value
             self.NEXTS[var_name] = list()
-            self.__dont_update_counter = True
+
+            #optimization: reduces the final number of lines
+            # ==> less states for nuxmv to examine
+            self.__dont_update_counter = True 
         else:
             self.NEXTS[var_name].append(Assign(self.counter, value))
-            
+
         print( f"{var_name} := {value}")
         return( f"{var_name} := {value}")
 
@@ -122,10 +125,11 @@ class MyVisitor(ast.NodeTransformer):
             self.__dont_update_counter = True
         else:
             self.NEXTS[var_name].append(Assign(self.counter, value))
-            
+
         print( f"{var_name} := {value}")
         return f"{var_name} := {value}"
 
+    
     @debug_decorator
     def visit_AugAssign(self, node):
         """ x *= y is the same as x = x * y """
@@ -205,7 +209,6 @@ class MyVisitor(ast.NodeTransformer):
 
         end_line = self.counter
         self.FLOW.append( While(test, start_line, end_line) )
-        # ("while", test, start_line, end_line) )
 
         self.update_counter() #"spazio bianco" dopo lo while per gestire i salti
         
@@ -384,6 +387,10 @@ class MyVisitor(ast.NodeTransformer):
         out += self.line_flow()
         
         for var_name, l in self.NEXTS.items():
+            if l == []: #if a variable never get changed
+                out += f"next({var_name}) := {var_name};\n\n"
+                continue
+            
             sub_out = f"next({var_name}) := case\n"
 
             for update in l:
@@ -493,8 +500,9 @@ ex = """
 
 a = 1
 b = a+1
-while (a <10):
-  a += 1
+# if a == 1:
+#   a = 2
+#   b = a + 1
 
 invarspec("b = 2")
 """
