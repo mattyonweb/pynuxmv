@@ -25,7 +25,7 @@ class MyVisitor(ast.NodeTransformer):
 
         self.quiet: bool = quiet
         self.debug: List[str] = list()
-
+        self.__dont_update_counter = False
         
     def debug_decorator(foo):
         def inner(*args):
@@ -43,6 +43,9 @@ class MyVisitor(ast.NodeTransformer):
         return inner
         
     def update_counter(self):
+        if self.__dont_update_counter:
+            self.__dont_update_counter = False
+            return
         self.counter += 1
         print(f"{self.counter} ", end="")
         
@@ -90,9 +93,10 @@ class MyVisitor(ast.NodeTransformer):
         value    = self.visit(node.value)
 
         if var_name not in self.VAR:
-            self.VAR[var_name] = "integer" #TODO
+            self.VAR[var_name] = "integer"
             self.INIT[var_name] = value
             self.NEXTS[var_name] = list()
+            self.__dont_update_counter = True
         else:
             self.NEXTS[var_name].append(Assign(self.counter, value))
             
@@ -115,6 +119,7 @@ class MyVisitor(ast.NodeTransformer):
             self.VAR[var_name] = types[type__]
             self.INIT[var_name] = value
             self.NEXTS[var_name] = list()
+            self.__dont_update_counter = True
         else:
             self.NEXTS[var_name].append(Assign(self.counter, value))
             
@@ -485,22 +490,11 @@ def pp(src):
     
 
 ex = """
-a = 0
-b = 0
-while (a + b < 2):
-  if b == 0 and a == 1:
-        b = 1  
-  else:
-        if b == 1 and a == 1:
-          b = 0  
-  if a == 1:
-        a = 0
-  else:
-        a = 1
 
-ltlspec("F (a = 1 & b = 1)")
-# ltlspec("(a = 0 & b = 0) -> F (a = 1 & b = 0)")
-# ltlspec("(a = 1 & b = 0) -> F (a = 0 & b = 1)")
-# ltlspec("(a = 0 & b = 1) -> F (a = 1 & b = 1)")
+a = 1
+b = a+1
+while (a <10):
+  a += 1
 
+invarspec("b = 2")
 """
