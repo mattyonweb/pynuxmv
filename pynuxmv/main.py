@@ -1,5 +1,5 @@
 import ast, sys, os, re
-import contextlib
+import pynuxmv.optimizations as optm
 from collections import namedtuple
 from typing import Dict, List, NewType, Tuple, Union, Any
 
@@ -25,7 +25,7 @@ class MyVisitor(ast.NodeTransformer):
 
         self.quiet: bool = quiet
         self.debug: List[str] = list()
-        self.__dont_update_counter = False
+        self.__dont_update_line_counter = False
         
     def debug_decorator(foo):
         def inner(*args):
@@ -43,8 +43,8 @@ class MyVisitor(ast.NodeTransformer):
         return inner
         
     def update_counter(self):
-        if self.__dont_update_counter:
-            self.__dont_update_counter = False
+        if self.__dont_update_line_counter:
+            self.__dont_update_line_counter = False
             return
         self.counter += 1
         print(f"{self.counter} ", end="")
@@ -88,25 +88,30 @@ class MyVisitor(ast.NodeTransformer):
         
     @debug_decorator        
     def visit_Assign(self, node):
-        """ x = 0 """
-        var_name = node.targets[0].id
-        value    = self.visit(node.value)
+        if isinstance(node.targets[0], ast.Tuple): # a, b = 1, 2
+            var_names = [n.id for n in node.targets[0].elts]
+            values    = [self.visit(n) for n in node.value.elts]
+        else: # a = 2
+            var_names = [node.targets[0].id]
+            values    = [self.visit(node.value)]
 
-        if var_name not in self.VAR:
-            self.VAR[var_name] = "integer"
-            self.INIT[var_name] = value
-            self.NEXTS[var_name] = list()
+        for var_name, value in  zip(var_names, values):
+            if var_name not in self.VAR:
+                self.VAR[var_name] = "integer"
+                self.INIT[var_name] = value
+                self.NEXTS[var_name] = list()
 
-            #optimization: reduces the final number of lines
-            # ==> less states for nuxmv to examine
-            self.__dont_update_counter = True 
-        else:
-            self.NEXTS[var_name].append(Assign(self.counter, value))
+                #optimization: reduces the final number of lines
+                # ==> less states for nuxmv to examine
+                self.__dont_update_line_counter = True 
+            else:
+                self.NEXTS[var_name].append(Assign(self.counter, value))
 
-        print( f"{var_name} := {value}")
-        return( f"{var_name} := {value}")
+            print( f"{var_name} := {value}")
+        return( f"{var_names} := {values}")
+            
 
-
+            
     @debug_decorator
     def visit_AnnAssign(self, node):
         var_name = node.target.id
@@ -122,7 +127,7 @@ class MyVisitor(ast.NodeTransformer):
             self.VAR[var_name] = types[type__]
             self.INIT[var_name] = value
             self.NEXTS[var_name] = list()
-            self.__dont_update_counter = True
+            self.__dont_update_line_counter = True
         else:
             self.NEXTS[var_name].append(Assign(self.counter, value))
 
@@ -273,8 +278,10 @@ class MyVisitor(ast.NodeTransformer):
     def visit_Expr(self, node):
         if invar := self.is_invarspec(node):
             self.INVARS.append(invar)
+            self.__dont_update_line_counter = True
         elif ltl := self.is_ltlspec(node):
             self.LTLS.append(ltl)
+            self.__dont_update_line_counter = True
         elif isinstance(node.value, ast.UnaryOp):
             assert isinstance(node.value.op, ast.USub), "not USub()!"
             return f"(- {self.visit(node.value.operand)})"
@@ -375,6 +382,8 @@ class MyVisitor(ast.NodeTransformer):
         out += "VAR\n"
         for k, v in self.VAR.items():
             out += f"{k}: {v};\n"
+            
+        # out += "line: " + str(list(range(1, self.counter+1))).replace("[", "{").replace("]", "}") + ";\n"
         out += "line: integer;\n"
         out += "\n"
 
@@ -420,7 +429,7 @@ def start_nuxmv():
 def end_nuxmv():
     pass
 
-
+import contextlib
 @contextlib.contextmanager
 def nostdout():
     """ Redirect stdout to /dev/null """
@@ -431,12 +440,19 @@ def nostdout():
     
 
         
-def run_single(code, fname_out="out.smv", quiet=True):
+def run_single(code, fname_out="out.smv", quiet=True,
+               optimizations: List[optm.Optimization]=None):
     """ Transpiles the given `code` and saves it to file. """ 
     mv = MyVisitor()
 
     def runner():
-        mv.visit(ast.parse(code))
+        ast_code = ast.parse(code)
+        
+        if not optimizations is None:
+            for optTransformer in optimizations:
+                ast_code = optTransformer.visit(ast_code)
+                
+        mv.visit(ast_code)
         open(fname_out, "w").write(mv.transpile())
         print()
         return mv
@@ -472,12 +488,13 @@ def nuxmv_blocks(code):
     return out_blocks
 
     
-def run(code, fname_out="out.smv", quiet=True):
+def run(code, fname_out="out.smv", quiet=True,
+        optimizations: List[optm.Optimization]=None):
     results = list()
     found   = nuxmv_blocks(code)
 
     if len(found) == 0:
-        return ([fname_out], [run_single(code, fname_out, quiet)])
+        return ([fname_out], [run_single(code, fname_out, quiet, optimizations)])
 
     fnames_generated = list()
     for i, block in enumerate(found):
@@ -495,14 +512,21 @@ def pp(src):
         print("Warning: couldn't find module 'astpretty'; falling back to ast.dump()")
         ast.dump(ast.parse(src))
     
+def tocode(ast_):
+    try:
+        import astor
+        return astor.to_source(ast_)
+    except ImportError:
+        print("Warning: couldn't find module 'astor'; nothing will be done")
+
+
 
 ex = """
-
-a = 1
-b = a+1
-# if a == 1:
-#   a = 2
-#   b = a + 1
-
-invarspec("b = 2")
+x = 0
+y = 1
+while (y < 10):
+  x += 1
+  y += 1 + x
+ltlspec("F y = 10")
+ltlspec("F x = 9")
 """

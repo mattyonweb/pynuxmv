@@ -3,7 +3,7 @@ MODULE main
 VAR
 i: integer;
 j: integer;
-line: integer;
+line: {1, 2, 3, 4, 5, 6, 7, 8};
 
 ASSIGN
 init(i) := 0;
@@ -11,22 +11,20 @@ init(j) := 0;
 init(line) := 1;
 
 next(line) := case
-	line = 4 & j = 0: line + 1; -- if(True)
-	line = 4: 7; -- if(False)
-	line = 3 & i = 0: line + 1; -- if(True)
-	line = 3: 8; -- if(False)
-	line = 9: 9; 
+	line = 2 & j = 0: line + 1; -- if(True)
+	line = 2: 5; -- if(False)
+	line = 1 & i = 0: line + 1; -- if(True)
+	line = 1: 6; -- if(False)
+	line = 7: 7; 
 	TRUE: line + 1; 
 esac;
 
 next(i) := case
-	line = 5: 0;
-	line = 8: 99;
+	line = 3: 0;
+	line = 6: 99;
 	TRUE: i; 
 esac;
 
-next(j) := case
-	TRUE: j; 
-esac;
+next(j) := j;
 
 LTLSPEC F i = 99;
