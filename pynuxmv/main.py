@@ -12,7 +12,8 @@ IfElse = namedtuple("IfElse", ["test", "loc_test", "loc_last_if", "loc_last"])
 Assign = namedtuple("Assign", ["loc", "expr"])
 
 from functools import wraps
-        
+
+
 class MyVisitor(ast.NodeTransformer):
     def __init__(self, quiet=True):
         self.counter: LineNo = LineNo(0) #for line number
@@ -85,17 +86,38 @@ class MyVisitor(ast.NodeTransformer):
             out = out.format(template, i, visited_el)
 
         return out.format("{}", i+1, self.visit(node.elts[-1]))
-        
+
+    def visit_Subscript(self, node):
+        base = self.visit(node.value)
+        slice_ = self.visit(node.slice.value)
+
+        if isinstance(node.ctx, ast.Load):
+            return f"READ({base}, {slice_})"
+        else:
+            return base
+    
     @debug_decorator        
     def visit_Assign(self, node):
-        if isinstance(node.targets[0], ast.Tuple): # a, b = 1, 2
-            var_names = [n.id for n in node.targets[0].elts]
+        # a, b = 1, 2
+        if isinstance(node.targets[0], ast.Tuple):
+            originals = [n for n in node.targets[0].elts]
+            var_names = [n.id for n in node.targets[0].elts] #TODO self.visit()
             values    = [self.visit(n) for n in node.value.elts]
         else: # a = 2
-            var_names = [node.targets[0].id]
+            originals = [node.targets[0]]
+            var_names = [self.visit(node.targets[0])] #.id]
             values    = [self.visit(node.value)]
 
-        for var_name, value in  zip(var_names, values):
+        for i, (var_name, value) in enumerate(zip(var_names, values)):
+
+            #diocan
+            if isinstance(originals[i], ast.Subscript):
+                idx = self.visit(originals[i].slice.value)
+                self.NEXTS[var_name].append(
+                    Assign(self.counter, f"WRITE({var_name}, {idx}, {value})")
+                )
+                continue
+            
             if var_name not in self.VAR:
                 self.VAR[var_name] = "integer"
                 self.INIT[var_name] = value
@@ -536,7 +558,9 @@ l: list = [1,2,3]
 while (y < 10):
   x += 1
   y += 1
-ltlspec("F y = 10")
-ltlspec("F x = 9")
-invarspec("line > 1 -> READ(l, 0) = 1 & READ(l, 1) = 2 & READ(l, 2) = 3")
+  l[2] = l[2] + 1
+
+#ltlspec("F y = 10")
+#ltlspec("F x = 9")
+ltlspec("x = 9 -> F READ(l, 2) = 12")
 """
