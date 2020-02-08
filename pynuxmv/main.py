@@ -612,7 +612,15 @@ ended = True
 ltlspec("F ended = TRUE")
 """
 
-# ex = """
-# a: list = [1,2,3]
-# a[0], b = 5, 9
-# """
+ex = """
+x = 0
+y = 1
+l: list = [1,2,3]
+while (y < 10):
+ x, y = x+1, y+1
+ l[2] = l[2] + x 
+
+postcondition("y = 10", False)
+postcondition("x = 9", False)
+postcondition("l[2] = 48", True)
+"""

@@ -102,16 +102,17 @@ This nuXmv file can be run with:
 	
 where `cmd_ltl` (or, for invariant checking, the equivalent `cmd_invar`) can be found in this repository.
 
+
 ## Limitations
 
 Up to now, this simple script has many limitations:
 
 + Limited support for `for` construct (only with numeric `range()`s)
-+ No support for types other than `integer` and `boolean` (no bounded integer, no words, no bitvectors, no arrays)
++ No support for python types other than `int`,`bool` and non-nested `list` (`list` support is still very experimental)
 + No support for higher structures (i.e. function calls, classes...)
 + No support for concurrent execution and/or `nuXmv` modules
 
-It's not (it shouldn't) be difficult to implement some of these things, but it will take some time to do it.
+I hope to be able to work on some of these issues in the (near) future.
 
 Also, take a look at the `TODO.md` file for other thing that can (not) be done up to now.
 
@@ -147,6 +148,31 @@ Let's notice some things:
 + At the end of the block you specify the conditions you want your program to comply with. These can be of two kinds, `LTL` formulas (`ltlspec`) or invariants (`invarspec`). More informations on LTL can be found on [wikipedia](https://en.wikipedia.org/wiki/Linear_temporal_logic). 
 
 + Finally: how do you test this portion of code? You simply run `pynuXmv` with the name of the source `.py` file to analyze and with the file name of the resulting `nuXmv` source code. You then launch `nuXmv` on these latter file, with an appropriate commands file (such as `unify`, which you can find in this repository).
-	
 
 
+#### Another examples: `postcondition`s
+
+Let's look at another example:
+
+	from pynuxmv.main import *
+
+	x = 0
+	y = 1
+	l: list = [1,2,3]
+	while (y < 10):
+	  x += 1
+	  y += 1
+	  l[2] = l[2] + x 
+
+	postcondition("y = 10", False)
+	postcondition("x = 9", False)
+	postcondition("l[2] = 48", True)
+
++ `l` is a `list`, and must be annotated as such. Here is a simple example of basically everything that you can do with lists so far (not much!)
++ The `postcondition(s: str, strong: bool)` function specifies a condition that needs to be satisfied _after_ the last line of code. The function is accompained by the `strong` flag: basically, `nuXmv` is not always capable of establishing whether a formula is true or false; if this is the case, enabling the `strong` flag will build a "stronger" condition in which previous postconditions are taken as premises; this may or may not help `nuXmv` in its judgments. In this example, the three postconditions will generate the following formulae:
+
+		INVARSPEC line = 7 -> y = 10;
+		INVARSPEC line = 7 -> x = 9;
+		INVARSPEC ((line = 7 -> y = 10) & (line = 7 -> x = 9) ) -> (line = 7 -> l[2] = 48);
+		
+	Of course, bear in mind that if one of the premises is false the strong postcondition will be trivially true!
