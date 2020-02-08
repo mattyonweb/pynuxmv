@@ -22,6 +22,7 @@ class MyVisitor(ast.NodeTransformer):
         self.NEXTS: Dict[str, List[NextInfo]] = dict()
         self.FLOW:  List[FlowInfo] = list()
         self.INVARS: List[str]     = list()
+        self.POSTCONDS: List[str]  = list()
         self.LTLS: List[str]       = list()
 
         self.quiet: bool = quiet
@@ -304,14 +305,33 @@ class MyVisitor(ast.NodeTransformer):
             return node.value.args[0].value
         return False
 
+    def is_postcondition(self, node) -> Union[bool, Tuple[str, bool]]:
+        if self.is_the_function("postcondition", node):
+            return (node.value.args[0].value, node.value.args[1].value)
+        return False
+    
     @debug_decorator
     def visit_Expr(self, node):
         if invar := self.is_invarspec(node):
             self.INVARS.append(invar)
             self.__dont_update_line_counter = True
+            
         elif ltl := self.is_ltlspec(node):
             self.LTLS.append(ltl)
             self.__dont_update_line_counter = True
+            
+        elif postcond_tupla := self.is_postcondition(node):
+            postcond, strong = postcond_tupla
+            if strong:
+                strong_postc = "("
+                for s in self.POSTCONDS[:-1]:
+                    strong_postc += f"({s}) & "
+                strong_postc += f"({self.POSTCONDS[-1]}) )"
+                self.POSTCONDS.append(f"{strong_postc} -> (line = {self.counter} -> {postcond})")
+            else:
+                self.POSTCONDS.append(f"line = {self.counter} -> {postcond}")
+            self.__dont_update_line_counter = True
+            
         elif isinstance(node.value, ast.UnaryOp):
             assert isinstance(node.value.op, ast.USub), "not USub()!"
             return f"(- {self.visit(node.value.operand)})"
@@ -442,6 +462,8 @@ class MyVisitor(ast.NodeTransformer):
 
         for invar in self.INVARS:
             out += f"INVARSPEC {invar};\n"
+        for postc in self.POSTCONDS:
+            out += f"INVARSPEC {postc};\n"
         for ltl in self.LTLS:
             out += f"LTLSPEC {ltl};\n"
         return out
@@ -453,6 +475,8 @@ class MyVisitor(ast.NodeTransformer):
 def invarspec(_: str):
     pass
 def ltlspec(_: str):
+    pass
+def postcondition(_: str, strong: bool):
     pass
 def start_nuxmv():
     pass
@@ -554,13 +578,14 @@ def tocode(ast_):
 ex = """
 x = 0
 y = 1
-l: list = [1,2,3]
+l: list = [1,2,2]
 while (y < 10):
   x += 1
   y += 1
   l[2] = l[2] + 1
 
-#ltlspec("F y = 10")
-#ltlspec("F x = 9")
-ltlspec("x = 9 -> F READ(l, 2) = 12")
+# ltlspec("x = 9 -> F READ(l, 2) = 12")
+postcondition("y = 10", False)
+postcondition("x = 9", False)
+postcondition("READ(l, 2) = 12", True)
 """
