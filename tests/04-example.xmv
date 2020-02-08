@@ -3,7 +3,7 @@ MODULE main
 VAR
 a: integer;
 b: integer;
-line: {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17};
+line: integer;
 
 ASSIGN
 init(a) := 0;
@@ -11,30 +11,30 @@ init(b) := 0;
 init(line) := 1;
 
 next(line) := case
-	line = 6 & b = 1 & a = 1: line + 1; -- if(True)
-	line = 6: 9; -- if(False)
-	line = 3 & b = 0 & a = 1: line + 1; -- if(True)
-	line = 4: 10; -- end if(True) 
-	line = 3: 6; -- else
-	line = 10 & a = 1: line + 1; -- if(True)
-	line = 11: 15; -- end if(True) 
-	line = 10: 13; -- else
-	line = 2 & a + b < 2: line + 1; -- while(True)
-	line = 2:  16; -- while(False)
-	line = 15: 2; -- loop while
-	line = 16: 16; 
+	line = 5 & b = 1 & a = 1: line + 1; -- if(True)
+	line = 5: 8; -- if(False)
+	line = 2 & b = 0 & a = 1: line + 1; -- if(True)
+	line = 3: 9; -- end if(True) 
+	line = 2: 5; -- else
+	line = 9 & a = 1: line + 1; -- if(True)
+	line = 10: 14; -- end if(True) 
+	line = 9: 12; -- else
+	line = 1 & a + b < 2: line + 1; -- while(True)
+	line = 1:  15; -- while(False)
+	line = 14: 1; -- loop while
+	line = 15: 15; 
 	TRUE: line + 1; 
 esac;
 
 next(a) := case
-	line = 11: 0;
-	line = 13: 1;
+	line = 10: 0;
+	line = 12: 1;
 	TRUE: a; 
 esac;
 
 next(b) := case
-	line = 4: 1;
-	line = 7: 0;
+	line = 3: 1;
+	line = 6: 0;
 	TRUE: b; 
 esac;
 

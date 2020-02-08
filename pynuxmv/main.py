@@ -12,7 +12,8 @@ IfElse = namedtuple("IfElse", ["test", "loc_test", "loc_last_if", "loc_last"])
 Assign = namedtuple("Assign", ["loc", "expr"])
 
 from functools import wraps
-        
+
+
 class MyVisitor(ast.NodeTransformer):
     def __init__(self, quiet=True):
         self.counter: LineNo = LineNo(0) #for line number
@@ -21,6 +22,7 @@ class MyVisitor(ast.NodeTransformer):
         self.NEXTS: Dict[str, List[NextInfo]] = dict()
         self.FLOW:  List[FlowInfo] = list()
         self.INVARS: List[str]     = list()
+        self.POSTCONDS: List[str]  = list()
         self.LTLS: List[str]       = list()
 
         self.quiet: bool = quiet
@@ -76,26 +78,47 @@ class MyVisitor(ast.NodeTransformer):
             self.visit(cmd)
 
 
-    # def visit_List(self, node):
-    #     if len(node.elts) == 0:
-            
-    #     template = "WRITE({}, {}, {})"
-    #     out      = template
+    def visit_List(self, node):
+        template = "WRITE({}, {}, {})"
+        out      = template
         
-    #     for i, el in enumerate(node.elts):
-    #         visited_el = self.visit(el)
-    #         out.format(template
-        
+        for i, el in enumerate(node.elts[:-1]):
+            visited_el = self.visit(el)
+            out = out.format(template, i, visited_el)
+
+        return out.format("{}", i+1, self.visit(node.elts[-1]))
+
+    def visit_Subscript(self, node):
+        base   = self.visit(node.value)
+        slice_ = self.visit(node.slice.value)
+
+        if isinstance(node.ctx, ast.Load):
+            return f"READ({base}, {slice_})"
+        else:
+            return base
+    
     @debug_decorator        
     def visit_Assign(self, node):
-        if isinstance(node.targets[0], ast.Tuple): # a, b = 1, 2
-            var_names = [n.id for n in node.targets[0].elts]
+        # a, b = 1, 2
+        if isinstance(node.targets[0], ast.Tuple):
+            originals = [n for n in node.targets[0].elts]
+            var_names = [n.id for n in node.targets[0].elts] #TODO self.visit()
             values    = [self.visit(n) for n in node.value.elts]
         else: # a = 2
-            var_names = [node.targets[0].id]
+            originals = [node.targets[0]]
+            var_names = [self.visit(node.targets[0])] 
             values    = [self.visit(node.value)]
 
-        for var_name, value in  zip(var_names, values):
+        for i, (var_name, value) in enumerate(zip(var_names, values)):
+
+            #diocan
+            if isinstance(originals[i], ast.Subscript):
+                idx = self.visit(originals[i].slice.value)
+                self.NEXTS[var_name].append(
+                    Assign(self.counter, f"WRITE({var_name}, {idx}, {value})")
+                )
+                continue
+            
             if var_name not in self.VAR:
                 self.VAR[var_name] = "integer"
                 self.INIT[var_name] = value
@@ -122,14 +145,22 @@ class MyVisitor(ast.NodeTransformer):
             "bool": "boolean", "int": "integer",
             "list": "array integer of integer"     
         }
-        
-        if var_name not in self.VAR:
-            self.VAR[var_name] = types[type__]
-            self.INIT[var_name] = value
-            self.NEXTS[var_name] = list()
-            self.__dont_update_line_counter = True
+
+        if type__ == "list":
+            if var_name not in self.VAR:
+                self.VAR[var_name]   = types[type__]
+                self.NEXTS[var_name] = list()
+            
+            self.NEXTS[var_name].append(Assign(self.counter, value.format(var_name)))
+
         else:
-            self.NEXTS[var_name].append(Assign(self.counter, value))
+            if var_name not in self.VAR:
+                self.VAR[var_name] = types[type__]
+                self.INIT[var_name] = value
+                self.NEXTS[var_name] = list()
+                self.__dont_update_line_counter = True
+            else:
+                self.NEXTS[var_name].append(Assign(self.counter, value))
 
         print( f"{var_name} := {value}")
         return f"{var_name} := {value}"
@@ -193,9 +224,14 @@ class MyVisitor(ast.NodeTransformer):
             ast.Or : "|", ast.And: "&"
         }
         op = node.op
-        arg1, arg2 = [self.visit(arg) for arg in node.values]
+        # arg1, arg2 = [self.visit(arg) for arg in node.values]
+        args = [self.visit(arg) for arg in node.values]
 
-        return f"{arg1} {conv_str[type(op)]} {arg2}"
+        out = f"{args[0]}"
+        for arg in args[1:]:
+            out += f" {conv_str[type(op)]} {arg}"
+        return out
+        # return f"{arg1} {conv_str[type(op)]} {arg2}"
 
     
     @debug_decorator
@@ -274,14 +310,33 @@ class MyVisitor(ast.NodeTransformer):
             return node.value.args[0].value
         return False
 
+    def is_postcondition(self, node) -> Union[bool, Tuple[str, bool]]:
+        if self.is_the_function("postcondition", node):
+            return (node.value.args[0].value, node.value.args[1].value)
+        return False
+    
     @debug_decorator
     def visit_Expr(self, node):
         if invar := self.is_invarspec(node):
             self.INVARS.append(invar)
             self.__dont_update_line_counter = True
+            
         elif ltl := self.is_ltlspec(node):
             self.LTLS.append(ltl)
             self.__dont_update_line_counter = True
+            
+        elif postcond_tupla := self.is_postcondition(node):
+            postcond, strong = postcond_tupla
+            if strong:
+                strong_postc = "("
+                for s in self.POSTCONDS[:-1]:
+                    strong_postc += f"({s}) & "
+                strong_postc += f"({self.POSTCONDS[-1]}) )"
+                self.POSTCONDS.append(f"{strong_postc} -> (line = {self.counter} -> {postcond})")
+            else:
+                self.POSTCONDS.append(f"line = {self.counter} -> {postcond}")
+            self.__dont_update_line_counter = True
+            
         elif isinstance(node.value, ast.UnaryOp):
             assert isinstance(node.value.op, ast.USub), "not USub()!"
             return f"(- {self.visit(node.value.operand)})"
@@ -344,7 +399,8 @@ class MyVisitor(ast.NodeTransformer):
 
         
     def visit_ImportFrom(self, node):
-        pass
+        self.__dont_update_line_counter = True
+        
 
     def debug_dump(self):
         for k, v in self.debug:
@@ -412,6 +468,8 @@ class MyVisitor(ast.NodeTransformer):
 
         for invar in self.INVARS:
             out += f"INVARSPEC {invar};\n"
+        for postc in self.POSTCONDS:
+            out += f"INVARSPEC {postc};\n"
         for ltl in self.LTLS:
             out += f"LTLSPEC {ltl};\n"
         return out
@@ -423,6 +481,8 @@ class MyVisitor(ast.NodeTransformer):
 def invarspec(_: str):
     pass
 def ltlspec(_: str):
+    pass
+def postcondition(_: str, strong: bool):
     pass
 def start_nuxmv():
     pass
@@ -524,9 +584,35 @@ def tocode(ast_):
 ex = """
 x = 0
 y = 1
+b: bool = False
+l: list = [1,2,3]
 while (y < 10):
   x += 1
-  y += 1 + x
-ltlspec("F y = 10")
-ltlspec("F x = 9")
+  if x == 2 or x == 4 or x == 6 or x == 8:
+    y += 2
+  else:
+    y += 1
+  l[2] = l[2] + x * y
+
+postcondition("y = 8", False)
+postcondition("x = 4", False)
+postcondition("l[2] = 60", True)
 """
+
+gcd = """
+a, b = 406, 212
+ended: bool = False
+while (a != b):
+  if a > b:
+    a -= b
+  else:
+    b -= a
+ended = True
+
+ltlspec("F ended = TRUE")
+"""
+
+# ex = """
+# a: list = [1,2,3]
+# a[0], b = 5, 9
+# """
