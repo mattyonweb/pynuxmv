@@ -89,7 +89,7 @@ class MyVisitor(ast.NodeTransformer):
         return out.format("{}", i+1, self.visit(node.elts[-1]))
 
     def visit_Subscript(self, node):
-        base = self.visit(node.value)
+        base   = self.visit(node.value)
         slice_ = self.visit(node.slice.value)
 
         if isinstance(node.ctx, ast.Load):
@@ -106,7 +106,7 @@ class MyVisitor(ast.NodeTransformer):
             values    = [self.visit(n) for n in node.value.elts]
         else: # a = 2
             originals = [node.targets[0]]
-            var_names = [self.visit(node.targets[0])] #.id]
+            var_names = [self.visit(node.targets[0])] 
             values    = [self.visit(node.value)]
 
         for i, (var_name, value) in enumerate(zip(var_names, values)):
@@ -224,9 +224,14 @@ class MyVisitor(ast.NodeTransformer):
             ast.Or : "|", ast.And: "&"
         }
         op = node.op
-        arg1, arg2 = [self.visit(arg) for arg in node.values]
+        # arg1, arg2 = [self.visit(arg) for arg in node.values]
+        args = [self.visit(arg) for arg in node.values]
 
-        return f"{arg1} {conv_str[type(op)]} {arg2}"
+        out = f"{args[0]}"
+        for arg in args[1:]:
+            out += f" {conv_str[type(op)]} {arg}"
+        return out
+        # return f"{arg1} {conv_str[type(op)]} {arg2}"
 
     
     @debug_decorator
@@ -394,7 +399,8 @@ class MyVisitor(ast.NodeTransformer):
 
         
     def visit_ImportFrom(self, node):
-        pass
+        self.__dont_update_line_counter = True
+        
 
     def debug_dump(self):
         for k, v in self.debug:
@@ -578,14 +584,35 @@ def tocode(ast_):
 ex = """
 x = 0
 y = 1
-l: list = [1,2,2]
+b: bool = False
+l: list = [1,2,3]
 while (y < 10):
   x += 1
-  y += 1
-  l[2] = l[2] + 1
+  if x == 2 or x == 4 or x == 6 or x == 8:
+    y += 2
+  else:
+    y += 1
+  l[2] = l[2] + x * y
 
-# ltlspec("x = 9 -> F READ(l, 2) = 12")
-postcondition("y = 10", False)
-postcondition("x = 9", False)
-postcondition("READ(l, 2) = 12", True)
+postcondition("y = 8", False)
+postcondition("x = 4", False)
+postcondition("l[2] = 60", True)
 """
+
+gcd = """
+a, b = 406, 212
+ended: bool = False
+while (a != b):
+  if a > b:
+    a -= b
+  else:
+    b -= a
+ended = True
+
+ltlspec("F ended = TRUE")
+"""
+
+# ex = """
+# a: list = [1,2,3]
+# a[0], b = 5, 9
+# """
