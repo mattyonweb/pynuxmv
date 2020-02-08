@@ -76,15 +76,15 @@ class MyVisitor(ast.NodeTransformer):
             self.visit(cmd)
 
 
-    # def visit_List(self, node):
-    #     if len(node.elts) == 0:
-            
-    #     template = "WRITE({}, {}, {})"
-    #     out      = template
+    def visit_List(self, node):
+        template = "WRITE({}, {}, {})"
+        out      = template
         
-    #     for i, el in enumerate(node.elts):
-    #         visited_el = self.visit(el)
-    #         out.format(template
+        for i, el in enumerate(node.elts[:-1]):
+            visited_el = self.visit(el)
+            out = out.format(template, i, visited_el)
+
+        return out.format("{}", i+1, self.visit(node.elts[-1]))
         
     @debug_decorator        
     def visit_Assign(self, node):
@@ -122,14 +122,22 @@ class MyVisitor(ast.NodeTransformer):
             "bool": "boolean", "int": "integer",
             "list": "array integer of integer"     
         }
-        
-        if var_name not in self.VAR:
-            self.VAR[var_name] = types[type__]
-            self.INIT[var_name] = value
-            self.NEXTS[var_name] = list()
-            self.__dont_update_line_counter = True
+
+        if type__ == "list":
+            if var_name not in self.VAR:
+                self.VAR[var_name]   = types[type__]
+                self.NEXTS[var_name] = list()
+            
+            self.NEXTS[var_name].append(Assign(self.counter, value.format(var_name)))
+
         else:
-            self.NEXTS[var_name].append(Assign(self.counter, value))
+            if var_name not in self.VAR:
+                self.VAR[var_name] = types[type__]
+                self.INIT[var_name] = value
+                self.NEXTS[var_name] = list()
+                self.__dont_update_line_counter = True
+            else:
+                self.NEXTS[var_name].append(Assign(self.counter, value))
 
         print( f"{var_name} := {value}")
         return f"{var_name} := {value}"
@@ -524,9 +532,11 @@ def tocode(ast_):
 ex = """
 x = 0
 y = 1
+l: list = [1,2,3]
 while (y < 10):
   x += 1
-  y += 1 + x
+  y += 1
 ltlspec("F y = 10")
 ltlspec("F x = 9")
+invarspec("line > 1 -> READ(l, 0) = 1 & READ(l, 1) = 2 & READ(l, 2) = 3")
 """
