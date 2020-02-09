@@ -54,14 +54,15 @@ else:
 verbose = cli_args.verbose
     
 expected = { 
-    "01-example.xmv": "pass",
-    "02-example.xmv": "fail",
-    "03-example.xmv": "pass",
-    "04-example.xmv": "pass",
-    "05-example.xmv0": "pass",
-    "06-example.xmv": "pass",
-    "07-example.xmv": "pass",
-    "08-example.xmv": "pass",
+    "01-invars.xmv": "pass",
+    "02-invars.xmv": "fail",
+    "03-nested-if.xmv": "pass",
+    "04-2bit-counter.xmv": "pass",
+    "05-not-only-nuxmv.xmv0": "pass",
+    "06-range.xmv": "pass",
+    "07-bool.xmv": "pass",
+    "08-list-postconditions.xmv": "pass",
+    "09-halting.xmv": "fail",
 }
 
 for fname in srcs:

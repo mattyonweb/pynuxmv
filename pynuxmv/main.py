@@ -1,9 +1,9 @@
-import ast, sys, os, re
+import ast, re
 import pynuxmv.optimizations as optm
 from collections import namedtuple
-from typing import Dict, List, NewType, Tuple, Union, Any
+from typing import Dict, List, Tuple, Union, Any
 
-LineNo   = NewType("LineNo", int)
+VarName  = str
 
 While  = namedtuple("While",  ["test", "loc_test", "loc_last"])
 If     = namedtuple("If",     ["test", "loc_test", "loc_last"])
@@ -11,45 +11,47 @@ IfElse = namedtuple("IfElse", ["test", "loc_test", "loc_last_if", "loc_last"])
 
 Assign = namedtuple("Assign", ["loc", "expr"])
 
-from functools import wraps
 
 
 class MyVisitor(ast.NodeTransformer):
-    def __init__(self, quiet=True):
-        self.counter: LineNo = LineNo(0) #for line number
-        self.VAR:   Dict[str, str]  = dict()
-        self.INIT:  Dict[str, Any]  = dict()
-        self.NEXTS: Dict[str, List[NextInfo]] = dict()
+    def __init__(self, quiet=True, **kwargs):
+        # current line number
+        self.counter: int = 0
+        # Types of the variables defined 
+        self.TYPE:  Dict[VarName, str]  = dict()
+        # Initial values of variables
+        self.INIT:  Dict[VarName, str]  = dict()
+        # Next states of a variable (comprises LOC info)
+        self.NEXTS: Dict[VarName, List[Assign]] = dict()
+        # Next state of the `line` variable
         self.FLOW:  List[FlowInfo] = list()
+        
+        # Conditions to test
         self.INVARS: List[str]     = list()
         self.POSTCONDS: List[str]  = list()
         self.LTLS: List[str]       = list()
 
-        self.quiet: bool = quiet
-        self.debug: List[str] = list()
+        # Miscellaneus 
+        self.quiet: bool   = quiet
+        self.options: Dict = kwargs
+        
+        # If True, next call to `update_counter()` will not update the LOC counter
+        # Very ugly and side-effect-ish
         self.__dont_update_line_counter = False
+
         
-    def debug_decorator(foo):
-        def inner(*args):
-            self = args[0]
-            res = foo(*args)
-            if res is None:
-                self.debug.append( (self.counter, " "))
-                if not self.quiet:
-                    print(f"{self.counter}\t ")
-            else:
-                self.debug.append( (self.counter, res) )
-                if not self.quiet:
-                    print(f"{self.counter}\t{res} ")
-            return res
-        return inner
-        
+    def print(self, s, *args, **kwargs):
+        if not self.quiet:
+            print(s, *args, **kwargs)
+
+            
     def update_counter(self):
         if self.__dont_update_line_counter:
             self.__dont_update_line_counter = False
             return
         self.counter += 1
-        print(f"{self.counter} ", end="")
+        self.print(f"{self.counter} ", end="")
+        
         
     def generic_visit(self, node) -> str:
         """ Identical to default one, except this `return`s """
@@ -97,7 +99,7 @@ class MyVisitor(ast.NodeTransformer):
         else:
             return base
     
-    @debug_decorator        
+           
     def visit_Assign(self, node):
         # a, b = 1, 2
         if isinstance(node.targets[0], ast.Tuple):
@@ -119,8 +121,8 @@ class MyVisitor(ast.NodeTransformer):
                 )
                 continue
             
-            if var_name not in self.VAR:
-                self.VAR[var_name] = "integer"
+            if var_name not in self.TYPE:
+                self.TYPE[var_name] = "integer"
                 self.INIT[var_name] = value
                 self.NEXTS[var_name] = list()
 
@@ -130,12 +132,12 @@ class MyVisitor(ast.NodeTransformer):
             else:
                 self.NEXTS[var_name].append(Assign(self.counter, value))
 
-            print( f"{var_name} := {value}")
+            self.print( f"{var_name} := {value}")
         return( f"{var_names} := {values}")
             
 
             
-    @debug_decorator
+    
     def visit_AnnAssign(self, node):
         var_name = node.target.id
         value    = self.visit(node.value)
@@ -147,26 +149,26 @@ class MyVisitor(ast.NodeTransformer):
         }
 
         if type__ == "list":
-            if var_name not in self.VAR:
-                self.VAR[var_name]   = types[type__]
+            if var_name not in self.TYPE:
+                self.TYPE[var_name]   = types[type__]
                 self.NEXTS[var_name] = list()
             
             self.NEXTS[var_name].append(Assign(self.counter, value.format(var_name)))
 
         else:
-            if var_name not in self.VAR:
-                self.VAR[var_name] = types[type__]
+            if var_name not in self.TYPE:
+                self.TYPE[var_name] = types[type__]
                 self.INIT[var_name] = value
                 self.NEXTS[var_name] = list()
                 self.__dont_update_line_counter = True
             else:
                 self.NEXTS[var_name].append(Assign(self.counter, value))
 
-        print( f"{var_name} := {value}")
+        self.print( f"{var_name} := {value}")
         return f"{var_name} := {value}"
 
     
-    @debug_decorator
+    
     def visit_AugAssign(self, node):
         """ x *= y is the same as x = x * y """
         variable_store = node.target
@@ -215,7 +217,7 @@ class MyVisitor(ast.NodeTransformer):
         op    = conv_str[type(node.ops[0])]
         right = self.visit(node.comparators[0])
         
-        print(f"{left} {op} {right}")
+        self.print(f"{left} {op} {right}")
         return f"{left} {op} {right}"
 
 
@@ -231,21 +233,19 @@ class MyVisitor(ast.NodeTransformer):
         for arg in args[1:]:
             out += f" {conv_str[type(op)]} {arg}"
         return out
-        # return f"{arg1} {conv_str[type(op)]} {arg2}"
 
     
-    @debug_decorator
+    
     def visit_While(self, node):
-        print("While: ", end="")
+        self.print("While: ", end="")
         test = self.visit(node.test)
-        self.debug.append( (self.counter, f"While {test}") )
 
 
         start_line = self.counter
 
         for cmd in node.body:
             self.update_counter()
-            print("\t", end="")
+            self.print("\t", end="")
             self.visit(cmd)
 
         end_line = self.counter
@@ -254,18 +254,17 @@ class MyVisitor(ast.NodeTransformer):
         self.update_counter() #"spazio bianco" dopo lo while per gestire i salti
         
         
-    @debug_decorator
+    
     def visit_If(self, node):
         test = self.visit(node.test)
-        print(f"If {test}:\n")
-        self.debug.append( (self.counter, f"If {test}") )
+        self.print(f"If {test}:\n")
         
         start_line = self.counter
 
         # IF
         for cmd in node.body:
             self.update_counter()
-            print("\t", end="")
+            self.print("\t", end="")
             self.visit(cmd)
 
         last_of_if = self.counter
@@ -273,12 +272,11 @@ class MyVisitor(ast.NodeTransformer):
         
         # ELSE (se c'è)
         if len(node.orelse) > 0:
-            print("Else: ")
-            self.debug.append( (self.counter, f"Else") )
+            self.print("Else: ")
             
             for cmd in node.orelse:
                 self.update_counter()
-                print("\t", end="")
+                self.print("\t", end="")
                 self.visit(cmd)
 
             self.FLOW.append(
@@ -315,7 +313,7 @@ class MyVisitor(ast.NodeTransformer):
             return (node.value.args[0].value, node.value.args[1].value)
         return False
     
-    @debug_decorator
+    
     def visit_Expr(self, node):
         if invar := self.is_invarspec(node):
             self.INVARS.append(invar)
@@ -343,7 +341,18 @@ class MyVisitor(ast.NodeTransformer):
         else:
             return self.generic_visit(node)
 
-    @debug_decorator
+        
+    def visit_range(self, args: list):
+        if len(args) == 1:
+            return [0, self.visit(args[0]), 1], ast.Lt()
+        elif len(args) == 2:
+            return [self.visit(args[0]), self.visit(args[1]), 1], ast.Lt()
+        else:
+            # TODO!!!! Bug: non è che se ci sono tre argomenti il terzo
+            # è necessariamente negativo!
+            return [self.visit(arg) for arg in args], ast.Gt() 
+
+            
     def visit_For(self, node):
         """  for x in range(a, b, c)
 
@@ -357,17 +366,8 @@ class MyVisitor(ast.NodeTransformer):
         var_name = node.target.id
         
         assert node.iter.func.id == "range", "for doesn't use range()"
-        range_args = node.iter.args
-        if len(range_args) == 1:
-            a, b, s = 0, self.visit(range_args[0]), 1
-            comparison = ast.Lt()
-        elif len(range_args) == 2:
-            a, b, s = self.visit(range_args[0]), self.visit(range_args[1]), 1
-            comparison = ast.Lt()
-        else:
-            print(range_args[2])
-            a, b, s = self.visit(range_args[0]), self.visit(range_args[1]), self.visit(range_args[2])
-            comparison = ast.Gt()
+        
+        [a, b, s], comparison = self.visit_range(node.iter.args)
 
         increment_ast = ast.AugAssign(
             target=ast.Name(id=var_name, ctx=ast.Store()),
@@ -394,17 +394,13 @@ class MyVisitor(ast.NodeTransformer):
 
         for cmd in while_translation:
             self.update_counter()
-            print("\t", end="")
+            self.print("\t", end="")
             self.visit(cmd)
 
         
     def visit_ImportFrom(self, node):
         self.__dont_update_line_counter = True
-        
 
-    def debug_dump(self):
-        for k, v in self.debug:
-            print(k, "\t", v)
             
     ###############################################
     
@@ -434,22 +430,27 @@ class MyVisitor(ast.NodeTransformer):
 
     def transpile(self) -> str:
         out = "MODULE main\n\n"
-
+        
         out += "VAR\n"
-        for k, v in self.VAR.items():
+        for k, v in self.TYPE.items():
             out += f"{k}: {v};\n"
+
             
-        # out += "line: " + str(list(range(1, self.counter+1))).replace("[", "{").replace("]", "}") + ";\n"
-        out += "line: integer;\n"
+        if self.options.get("bounded_lineno", False): 
+            out += "line: " + str(list(range(1, self.counter+1))).replace("[", "{").replace("]", "}") + ";\n"
+        else:
+            out += "line: integer;\n"
         out += "\n"
 
+        
         out += "ASSIGN\n"
         for k, v in self.INIT.items():
             out += f"init({k}) := {v};\n"
         out += "init(line) := 1;\n" #????? 0 o 1?
         out += "\n"
-        
+
         out += self.line_flow()
+
         
         for var_name, l in self.NEXTS.items():
             if l == []: #if a variable never get changed
@@ -466,6 +467,7 @@ class MyVisitor(ast.NodeTransformer):
 
             out += sub_out
 
+            
         for invar in self.INVARS:
             out += f"INVARSPEC {invar};\n"
         for postc in self.POSTCONDS:
@@ -489,21 +491,12 @@ def start_nuxmv():
 def end_nuxmv():
     pass
 
-import contextlib
-@contextlib.contextmanager
-def nostdout():
-    """ Redirect stdout to /dev/null """
-    save_stdout = sys.stdout
-    sys.stdout = open(os.devnull, "w")
-    yield
-    sys.stdout = save_stdout
-    
-
         
 def run_single(code, fname_out="out.smv", quiet=True,
-               optimizations: List[optm.Optimization]=None):
+               optimizations: List[optm.Optimization]=None,
+               **options):
     """ Transpiles the given `code` and saves it to file. """ 
-    mv = MyVisitor()
+    mv = MyVisitor(quiet=quiet, **options)
 
     def runner():
         ast_code = ast.parse(code)
@@ -514,14 +507,9 @@ def run_single(code, fname_out="out.smv", quiet=True,
                 
         mv.visit(ast_code)
         open(fname_out, "w").write(mv.transpile())
-        print()
         return mv
 
-    if quiet:
-        with nostdout():
-            return runner()
-    else:
-        return runner()
+    return runner()
 
 
     
@@ -547,32 +535,40 @@ def nuxmv_blocks(code):
 
     return out_blocks
 
-    
+
+################################################################
+
+
 def run(code, fname_out="out.smv", quiet=True,
-        optimizations: List[optm.Optimization]=None):
+        optimizations: List[optm.Optimization]=None,
+        **options):
     results = list()
     found   = nuxmv_blocks(code)
 
     if len(found) == 0:
-        return ([fname_out], [run_single(code, fname_out, quiet, optimizations)])
+        return ([fname_out], [run_single(code, fname_out, quiet, optimizations, **options)])
 
     fnames_generated = list()
     for i, block in enumerate(found):
         fname_out__ = f"{fname_out}{i}"
-        results.append(run_single(block, fname_out__, quiet))
+        results.append(run_single(block, fname_out__, quiet, **options))
         fnames_generated.append(fname_out__)
 
     return (fnames_generated, results)
 
-def pp(src):
+
+def pp(src: str):
+    """ Pretty print of AST """
     try:
         import astpretty
         astpretty.pprint(ast.parse(src), show_offsets=False)
     except ImportError:
         print("Warning: couldn't find module 'astpretty'; falling back to ast.dump()")
         ast.dump(ast.parse(src))
-    
+
+
 def tocode(ast_):
+    """ From AST to string of code """
     try:
         import astor
         return astor.to_source(ast_)
@@ -580,45 +576,17 @@ def tocode(ast_):
         print("Warning: couldn't find module 'astor'; nothing will be done")
 
 
-
 ex = """
+from pynuxmv.main import *
+
 x = 0
 y = 1
-b: bool = False
 l: list = [1,2,3]
 while (y < 10):
   x += 1
-  if x == 2 or x == 4 or x == 6 or x == 8:
-    y += 2
-  else:
-    y += 1
-  l[2] = l[2] + x * y
-
-postcondition("y = 8", False)
-postcondition("x = 4", False)
-postcondition("l[2] = 60", True)
-"""
-
-gcd = """
-a, b = 406, 212
-ended: bool = False
-while (a != b):
-  if a > b:
-    a -= b
-  else:
-    b -= a
-ended = True
-
-ltlspec("F ended = TRUE")
-"""
-
-ex = """
-x = 0
-y = 1
-l: list = [1,2,3]
-while (y < 10):
- x, y = x+1, y+1
- l[2] = l[2] + x 
+  y += 1
+  y += 0
+  l[2] = l[2] + x 
 
 postcondition("y = 10", False)
 postcondition("x = 9", False)
