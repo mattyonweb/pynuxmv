@@ -6,5 +6,12 @@
 + [*] Add `not` in boolean clauses
 + [ ] Add `break`
 + [ ] Add `continue`
++ [ ] Add `elif`
 + [*] Add support for `boolean` type
-
++ [ ] Add support for functions
++ [ ] Add support for lists
+  + [ ] Add support for `del` on lists
+  + [*] Add support for list creation
+  + [*] Add support for list access and modification
++ [*] Add postconditions 
++ [ ] Add preconditions on variables		

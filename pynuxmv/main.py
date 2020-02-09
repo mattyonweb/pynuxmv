@@ -1,9 +1,10 @@
-import ast, sys, os, re
-import contextlib
+import ast, re
+import pynuxmv.optimizations as optm
+import pynuxmv.templates as templates
 from collections import namedtuple
-from typing import Dict, List, NewType, Tuple, Union, Any
+from typing import Dict, List, Tuple, Union, Any
 
-LineNo   = NewType("LineNo", int)
+VarName  = str
 
 While  = namedtuple("While",  ["test", "loc_test", "loc_last"])
 If     = namedtuple("If",     ["test", "loc_test", "loc_last"])
@@ -11,40 +12,60 @@ IfElse = namedtuple("IfElse", ["test", "loc_test", "loc_last_if", "loc_last"])
 
 Assign = namedtuple("Assign", ["loc", "expr"])
 
-from functools import wraps
-        
+
+def is_costant(node: ast.AST):
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, ast.UnaryOp):
+        return is_costant(node.operand)
+    if isinstance(node, ast.Expr):
+        if isinstance(node.value, ast.BinOp):
+            return is_costant(node.value.left) and is_costant(node.value.right)
+        if isinstance(node.value, ast.BoolOp):
+            return all([is_costant(arg) for arg in node.value.values])
+        return False
+    return False
+
+
 class MyVisitor(ast.NodeTransformer):
-    def __init__(self, quiet=True):
-        self.counter: LineNo = LineNo(0) #for line number
-        self.VAR:   Dict[str, str]  = dict()
-        self.INIT:  Dict[str, Any]  = dict()
-        self.NEXTS: Dict[str, List[NextInfo]] = dict()
+    def __init__(self, quiet=True, **kwargs):
+        # current line number
+        self.counter: int = 0
+        # Types of the variables defined 
+        self.TYPE:  Dict[VarName, str]  = dict()
+        # Initial values of variables
+        self.INIT:  Dict[VarName, str]  = dict()
+        # Next states of a variable (comprises LOC info)
+        self.NEXTS: Dict[VarName, List[Assign]] = dict()
+        # Next state of the `line` variable
         self.FLOW:  List[FlowInfo] = list()
+        
+        # Conditions to test
         self.INVARS: List[str]     = list()
+        self.POSTCONDS: List[str]  = list()
         self.LTLS: List[str]       = list()
 
-        self.quiet: bool = quiet
-        self.debug: List[str] = list()
+        # Miscellaneus 
+        self.quiet: bool   = quiet
+        self.options: Dict = kwargs
+        
+        # If True, next call to `update_counter()` will not update the LOC counter
+        # Very ugly and side-effect-ish
+        self.__dont_update_line_counter = False
 
         
-    def debug_decorator(foo):
-        def inner(*args):
-            self = args[0]
-            res = foo(*args)
-            if res is None:
-                self.debug.append( (self.counter, " "))
-                if not self.quiet:
-                    print(f"{self.counter}\t ")
-            else:
-                self.debug.append( (self.counter, res) )
-                if not self.quiet:
-                    print(f"{self.counter}\t{res} ")
-            return res
-        return inner
-        
+    def print(self, s, *args, **kwargs):
+        if not self.quiet:
+            print(s, *args, **kwargs)
+
+            
     def update_counter(self):
+        if self.__dont_update_line_counter:
+            self.__dont_update_line_counter = False
+            return
         self.counter += 1
-        print(f"{self.counter} ", end="")
+        self.print(f"{self.counter} ", end="")
+        
         
     def generic_visit(self, node) -> str:
         """ Identical to default one, except this `return`s """
@@ -73,34 +94,64 @@ class MyVisitor(ast.NodeTransformer):
             self.visit(cmd)
 
 
-    # def visit_List(self, node):
-    #     if len(node.elts) == 0:
-            
-    #     template = "WRITE({}, {}, {})"
-    #     out      = template
+    def visit_List(self, node):
+        template = "WRITE({}, {}, {})"
+        out      = template
         
-    #     for i, el in enumerate(node.elts):
-    #         visited_el = self.visit(el)
-    #         out.format(template
-        
-    @debug_decorator        
-    def visit_Assign(self, node):
-        """ x = 0 """
-        var_name = node.targets[0].id
-        value    = self.visit(node.value)
+        for i, el in enumerate(node.elts[:-1]):
+            visited_el = self.visit(el)
+            out = out.format(template, i, visited_el)
 
-        if var_name not in self.VAR:
-            self.VAR[var_name] = "integer" #TODO
-            self.INIT[var_name] = value
-            self.NEXTS[var_name] = list()
+        return out.format("{}", i+1, self.visit(node.elts[-1]))
+
+    def visit_Subscript(self, node):
+        base   = self.visit(node.value)
+        slice_ = self.visit(node.slice.value)
+
+        if isinstance(node.ctx, ast.Load):
+            return f"READ({base}, {slice_})"
         else:
-            self.NEXTS[var_name].append(Assign(self.counter, value))
+            return base
+    
+           
+    def visit_Assign(self, node):
+        # a, b = 1, 2
+        if isinstance(node.targets[0], ast.Tuple):
+            originals = [n for n in node.targets[0].elts]
+            var_names = [n.id for n in node.targets[0].elts] #TODO self.visit()
+            values    = [self.visit(n) for n in node.value.elts]
+        else: # a = 2
+            originals = [node.targets[0]]
+            var_names = [self.visit(node.targets[0])] 
+            values    = [self.visit(node.value)]
+
+        for i, (var_name, value) in enumerate(zip(var_names, values)):
+
+            #diocan
+            if isinstance(originals[i], ast.Subscript):
+                idx = self.visit(originals[i].slice.value)
+                self.NEXTS[var_name].append(
+                    Assign(self.counter, f"WRITE({var_name}, {idx}, {value})")
+                )
+                continue
             
-        print( f"{var_name} := {value}")
-        return( f"{var_name} := {value}")
+            if var_name not in self.TYPE:
+                self.TYPE[var_name] = "integer"
+                self.INIT[var_name] = value
+                self.NEXTS[var_name] = list()
 
+                #optimization: reduces the final number of lines
+                # ==> less states for nuxmv to examine
+                self.__dont_update_line_counter = True 
+            else:
+                self.NEXTS[var_name].append(Assign(self.counter, value))
 
-    @debug_decorator
+            self.print( f"{var_name} := {value}")
+        return( f"{var_names} := {values}")
+            
+
+            
+    
     def visit_AnnAssign(self, node):
         var_name = node.target.id
         value    = self.visit(node.value)
@@ -110,18 +161,28 @@ class MyVisitor(ast.NodeTransformer):
             "bool": "boolean", "int": "integer",
             "list": "array integer of integer"     
         }
-        
-        if var_name not in self.VAR:
-            self.VAR[var_name] = types[type__]
-            self.INIT[var_name] = value
-            self.NEXTS[var_name] = list()
-        else:
-            self.NEXTS[var_name].append(Assign(self.counter, value))
+
+        if type__ == "list":
+            if var_name not in self.TYPE:
+                self.TYPE[var_name]   = types[type__]
+                self.NEXTS[var_name] = list()
             
-        print( f"{var_name} := {value}")
+            self.NEXTS[var_name].append(Assign(self.counter, value.format(var_name)))
+
+        else:
+            if var_name not in self.TYPE:
+                self.TYPE[var_name] = types[type__]
+                self.INIT[var_name] = value
+                self.NEXTS[var_name] = list()
+                self.__dont_update_line_counter = True
+            else:
+                self.NEXTS[var_name].append(Assign(self.counter, value))
+
+        self.print( f"{var_name} := {value}")
         return f"{var_name} := {value}"
 
-    @debug_decorator
+    
+    
     def visit_AugAssign(self, node):
         """ x *= y is the same as x = x * y """
         variable_store = node.target
@@ -170,7 +231,7 @@ class MyVisitor(ast.NodeTransformer):
         op    = conv_str[type(node.ops[0])]
         right = self.visit(node.comparators[0])
         
-        print(f"{left} {op} {right}")
+        self.print(f"{left} {op} {right}")
         return f"{left} {op} {right}"
 
 
@@ -179,44 +240,45 @@ class MyVisitor(ast.NodeTransformer):
             ast.Or : "|", ast.And: "&"
         }
         op = node.op
-        arg1, arg2 = [self.visit(arg) for arg in node.values]
+        # arg1, arg2 = [self.visit(arg) for arg in node.values]
+        args = [self.visit(arg) for arg in node.values]
 
-        return f"{arg1} {conv_str[type(op)]} {arg2}"
+        out = f"{args[0]}"
+        for arg in args[1:]:
+            out += f" {conv_str[type(op)]} {arg}"
+        return out
 
     
-    @debug_decorator
+    
     def visit_While(self, node):
-        print("While: ", end="")
+        self.print("While: ", end="")
         test = self.visit(node.test)
-        self.debug.append( (self.counter, f"While {test}") )
 
 
         start_line = self.counter
 
         for cmd in node.body:
             self.update_counter()
-            print("\t", end="")
+            self.print("\t", end="")
             self.visit(cmd)
 
         end_line = self.counter
         self.FLOW.append( While(test, start_line, end_line) )
-        # ("while", test, start_line, end_line) )
 
         self.update_counter() #"spazio bianco" dopo lo while per gestire i salti
         
         
-    @debug_decorator
+    
     def visit_If(self, node):
         test = self.visit(node.test)
-        print(f"If {test}:\n")
-        self.debug.append( (self.counter, f"If {test}") )
+        self.print(f"If {test}:\n")
         
         start_line = self.counter
 
         # IF
         for cmd in node.body:
             self.update_counter()
-            print("\t", end="")
+            self.print("\t", end="")
             self.visit(cmd)
 
         last_of_if = self.counter
@@ -224,12 +286,11 @@ class MyVisitor(ast.NodeTransformer):
         
         # ELSE (se c'è)
         if len(node.orelse) > 0:
-            print("Else: ")
-            self.debug.append( (self.counter, f"Else") )
+            self.print("Else: ")
             
             for cmd in node.orelse:
                 self.update_counter()
-                print("\t", end="")
+                self.print("\t", end="")
                 self.visit(cmd)
 
             self.FLOW.append(
@@ -261,19 +322,64 @@ class MyVisitor(ast.NodeTransformer):
             return node.value.args[0].value
         return False
 
-    @debug_decorator
+    def is_postcondition(self, node) -> Union[bool, Tuple[str, bool]]:
+        if self.is_the_function("postcondition", node):
+            return (node.value.args[0].value, node.value.args[1].value)
+        return False
+    
+    
     def visit_Expr(self, node):
         if invar := self.is_invarspec(node):
             self.INVARS.append(invar)
+            self.__dont_update_line_counter = True
+            
         elif ltl := self.is_ltlspec(node):
             self.LTLS.append(ltl)
+            self.__dont_update_line_counter = True
+            
+        elif postcond_tupla := self.is_postcondition(node):
+            postcond, strong = postcond_tupla
+
+            # Build "strong" postcondition
+            if strong:
+                strong_postc = "("
+                for s in self.POSTCONDS[:-1]:
+                    strong_postc += f"({s}) & "
+                strong_postc += f"({self.POSTCONDS[-1]}) )"
+                self.POSTCONDS.append(f"{strong_postc} -> (line = {self.counter} -> {postcond})")
+            else:
+                self.POSTCONDS.append(f"line = {self.counter} -> {postcond}")
+                
+            self.__dont_update_line_counter = True
+            
         elif isinstance(node.value, ast.UnaryOp):
             assert isinstance(node.value.op, ast.USub), "not USub()!"
             return f"(- {self.visit(node.value.operand)})"
+        
         else:
             return self.generic_visit(node)
 
-    @debug_decorator
+        
+    def visit_range(self, args: list, var_name: str):
+        if len(args) == 1:
+            return [0, self.visit(args[0]), 1], ast.Lt()
+        
+        elif len(args) == 2:
+            return [self.visit(args[0]), self.visit(args[1]), 1], ast.Lt()
+        
+        else:
+            v_a, v_b, v_s = [self.visit(arg) for arg in args]
+            step = args[-1] # AST, not string!
+            if is_costant(step):
+                try:
+                    comp = ast.Gt() if ast.literal_eval(step) < 0 else ast.Lt()
+                    return [v_a,v_b,v_s], comp
+                except (ValueError, TypeError):
+                    pass
+            
+            return [v_a, v_b, v_s], templates.nontrivial_range(var_name, args)
+
+        
     def visit_For(self, node):
         """  for x in range(a, b, c)
 
@@ -287,18 +393,18 @@ class MyVisitor(ast.NodeTransformer):
         var_name = node.target.id
         
         assert node.iter.func.id == "range", "for doesn't use range()"
-        range_args = node.iter.args
-        if len(range_args) == 1:
-            a, b, s = 0, self.visit(range_args[0]), 1
-            comparison = ast.Lt()
-        elif len(range_args) == 2:
-            a, b, s = self.visit(range_args[0]), self.visit(range_args[1]), 1
-            comparison = ast.Lt()
-        else:
-            print(range_args[2])
-            a, b, s = self.visit(range_args[0]), self.visit(range_args[1]), self.visit(range_args[2])
-            comparison = ast.Gt()
+        
+        [a, b, s], comparison = self.visit_range(node.iter.args, var_name)
 
+        if isinstance(comparison, (ast.Lt, ast.Gt)):
+            test = ast.Compare(
+                    left=ast.Name(id=var_name, ctx=ast.Load()),
+                    ops=[comparison],
+                    comparators=[ast.Constant(value=b, kind=None)],
+                )
+        else:
+            test = comparison
+            
         increment_ast = ast.AugAssign(
             target=ast.Name(id=var_name, ctx=ast.Store()),
             op=ast.Add(),
@@ -312,11 +418,7 @@ class MyVisitor(ast.NodeTransformer):
                 type_comment=None,
             ),
             ast.While(
-                test=ast.Compare(
-                    left=ast.Name(id=var_name, ctx=ast.Load()),
-                    ops=[comparison],
-                    comparators=[ast.Constant(value=b, kind=None)],
-                ),
+                test=test,
                 body=node.body + [increment_ast],
                 orelse=[],
             ),
@@ -324,16 +426,13 @@ class MyVisitor(ast.NodeTransformer):
 
         for cmd in while_translation:
             self.update_counter()
-            print("\t", end="")
+            self.print("\t", end="")
             self.visit(cmd)
 
         
     def visit_ImportFrom(self, node):
-        pass
+        self.__dont_update_line_counter = True
 
-    def debug_dump(self):
-        for k, v in self.debug:
-            print(k, "\t", v)
             
     ###############################################
     
@@ -342,14 +441,14 @@ class MyVisitor(ast.NodeTransformer):
         
         for obj in self.FLOW:
             if isinstance(obj, While):
-                out += f"\tline = {obj.loc_test} & {obj.test}: line + 1; -- while(True)\n"
+                out += f"\tline = {obj.loc_test} & ({obj.test}): line + 1; -- while(True)\n"
                 out += f"\tline = {obj.loc_test}:  {obj.loc_last + 2}; -- while(False)\n"
                 out += f"\tline = {obj.loc_last+1}: {obj.loc_test}; -- loop while\n"
             elif isinstance(obj, If):                
-                out += f"\tline = {obj.loc_test} & {obj.test}: line + 1; -- if(True)\n"
+                out += f"\tline = {obj.loc_test} & ({obj.test}): line + 1; -- if(True)\n"
                 out += f"\tline = {obj.loc_test}: {obj.loc_last + 2}; -- if(False)\n"
             elif isinstance(obj, IfElse): 
-                out += f"\tline = {obj.loc_test} & {obj.test}: line + 1; -- if(True)\n"
+                out += f"\tline = {obj.loc_test} & ({obj.test}): line + 1; -- if(True)\n"
                 out += f"\tline = {obj.loc_last_if}: {obj.loc_last + 2}; -- end if(True) \n"
                 out += f"\tline = {obj.loc_test}: {obj.loc_last_if + 2}; -- else\n"
                 
@@ -363,22 +462,33 @@ class MyVisitor(ast.NodeTransformer):
 
     def transpile(self) -> str:
         out = "MODULE main\n\n"
-
+        
         out += "VAR\n"
-        for k, v in self.VAR.items():
+        for k, v in self.TYPE.items():
             out += f"{k}: {v};\n"
-        out += "line: integer;\n"
+
+            
+        if self.options.get("bounded_lineno", False): 
+            out += "line: " + str(list(range(1, self.counter+1))).replace("[", "{").replace("]", "}") + ";\n"
+        else:
+            out += "line: integer;\n"
         out += "\n"
 
+        
         out += "ASSIGN\n"
         for k, v in self.INIT.items():
             out += f"init({k}) := {v};\n"
         out += "init(line) := 1;\n" #????? 0 o 1?
         out += "\n"
-        
+
         out += self.line_flow()
+
         
         for var_name, l in self.NEXTS.items():
+            if l == []: #if a variable never get changed
+                out += f"next({var_name}) := {var_name};\n\n"
+                continue
+            
             sub_out = f"next({var_name}) := case\n"
 
             for update in l:
@@ -389,8 +499,11 @@ class MyVisitor(ast.NodeTransformer):
 
             out += sub_out
 
+            
         for invar in self.INVARS:
             out += f"INVARSPEC {invar};\n"
+        for postc in self.POSTCONDS:
+            out += f"INVARSPEC {postc};\n"
         for ltl in self.LTLS:
             out += f"LTLSPEC {ltl};\n"
         return out
@@ -403,37 +516,32 @@ def invarspec(_: str):
     pass
 def ltlspec(_: str):
     pass
+def postcondition(_: str, strong: bool):
+    pass
 def start_nuxmv():
     pass
 def end_nuxmv():
     pass
 
-
-@contextlib.contextmanager
-def nostdout():
-    """ Redirect stdout to /dev/null """
-    save_stdout = sys.stdout
-    sys.stdout = open(os.devnull, "w")
-    yield
-    sys.stdout = save_stdout
-    
-
         
-def run_single(code, fname_out="out.smv", quiet=True):
+def run_single(code, fname_out="out.smv", quiet=True,
+               optimizations: List[optm.Optimization]=None,
+               **options):
     """ Transpiles the given `code` and saves it to file. """ 
-    mv = MyVisitor()
+    mv = MyVisitor(quiet=quiet, **options)
 
     def runner():
-        mv.visit(ast.parse(code))
+        ast_code = ast.parse(code)
+        
+        if not optimizations is None:
+            for optTransformer in optimizations:
+                ast_code = optTransformer.visit(ast_code)
+                
+        mv.visit(ast_code)
         open(fname_out, "w").write(mv.transpile())
-        print()
         return mv
 
-    if quiet:
-        with nostdout():
-            return runner()
-    else:
-        return runner()
+    return runner()
 
 
     
@@ -459,48 +567,60 @@ def nuxmv_blocks(code):
 
     return out_blocks
 
-    
-def run(code, fname_out="out.smv", quiet=True):
+
+################################################################
+
+
+def run(code, fname_out="out.smv", quiet=True,
+        optimizations: List[optm.Optimization]=None,
+        **options):
     results = list()
     found   = nuxmv_blocks(code)
 
     if len(found) == 0:
-        return ([fname_out], [run_single(code, fname_out, quiet)])
+        return ([fname_out], [run_single(code, fname_out, quiet, optimizations, **options)])
 
     fnames_generated = list()
     for i, block in enumerate(found):
         fname_out__ = f"{fname_out}{i}"
-        results.append(run_single(block, fname_out__, quiet))
+        results.append(run_single(block, fname_out__, quiet, **options))
         fnames_generated.append(fname_out__)
 
     return (fnames_generated, results)
 
-def pp(src):
+
+def pp(src: str):
+    """ Pretty print of AST """
     try:
         import astpretty
         astpretty.pprint(ast.parse(src), show_offsets=False)
     except ImportError:
         print("Warning: couldn't find module 'astpretty'; falling back to ast.dump()")
         ast.dump(ast.parse(src))
-    
+
+
+def tocode(ast_):
+    """ From AST to string of code """
+    try:
+        import astor
+        return astor.to_source(ast_)
+    except ImportError:
+        print("Warning: couldn't find module 'astor'; nothing will be done")
+
 
 ex = """
-a = 0
-b = 0
-while (a + b < 2):
-  if b == 0 and a == 1:
-        b = 1  
-  else:
-        if b == 1 and a == 1:
-          b = 0  
-  if a == 1:
-        a = 0
-  else:
-        a = 1
+from pynuxmv.main import *
 
-ltlspec("F (a = 1 & b = 1)")
-# ltlspec("(a = 0 & b = 0) -> F (a = 1 & b = 0)")
-# ltlspec("(a = 1 & b = 0) -> F (a = 0 & b = 1)")
-# ltlspec("(a = 0 & b = 1) -> F (a = 1 & b = 1)")
+x = 0
+y = 1
+l: list = [1,2,3]
+while (y < 10):
+  x += 1
+  y += 1
+  y += 0
+  l[2] = l[2] + x 
 
+postcondition("y = 10", False)
+postcondition("x = 9", False)
+postcondition("l[2] = 48", True)
 """
