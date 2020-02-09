@@ -86,6 +86,9 @@ class OptMergeNonInterferentAssignments(Optimization):
         new_while.body = blocks
         return new_while
 
+
+
+
 defaults = [OptRemoveAugAssign(), OptMergeNonInterferentAssignments()]
 
 def tests(src, opts):
