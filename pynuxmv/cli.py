@@ -16,7 +16,7 @@ whitespaces = r"\n{2,}"
 whitespaces_regex   = re.compile(whitespaces)
 
 
-def show_credits():
+def show_credits(): # TODO!
     print("""
     *** This is nuXmv 2.0.0 (compiled on Mon Oct 14 17:39:30 2019)
     *** Copyright (c) 2014-2019, Fondazione Bruno Kessler
