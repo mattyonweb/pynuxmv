@@ -7,7 +7,7 @@ setuptools.setup(
     name="pynuxmv",
     long_description=long_desc,
     long_description_content_type="text/markdown",
-    version="0.1.01",
+    version="0.1.2",
     author="Matteo Cavada",
     author_email="cvd00@insicuri.net",
     description="Transpile Python to nuXmv source code",

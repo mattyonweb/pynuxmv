@@ -1,5 +1,6 @@
 import ast, re
 import pynuxmv.optimizations as optm
+import pynuxmv.templates as templates
 from collections import namedtuple
 from typing import Dict, List, Tuple, Union, Any
 
@@ -11,6 +12,19 @@ IfElse = namedtuple("IfElse", ["test", "loc_test", "loc_last_if", "loc_last"])
 
 Assign = namedtuple("Assign", ["loc", "expr"])
 
+
+def is_costant(node: ast.AST):
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, ast.UnaryOp):
+        return is_costant(node.operand)
+    if isinstance(node, ast.Expr):
+        if isinstance(node.value, ast.BinOp):
+            return is_costant(node.value.left) and is_costant(node.value.right)
+        if isinstance(node.value, ast.BoolOp):
+            return all([is_costant(arg) for arg in node.value.values])
+        return False
+    return False
 
 
 class MyVisitor(ast.NodeTransformer):
@@ -325,6 +339,8 @@ class MyVisitor(ast.NodeTransformer):
             
         elif postcond_tupla := self.is_postcondition(node):
             postcond, strong = postcond_tupla
+
+            # Build "strong" postcondition
             if strong:
                 strong_postc = "("
                 for s in self.POSTCONDS[:-1]:
@@ -333,26 +349,37 @@ class MyVisitor(ast.NodeTransformer):
                 self.POSTCONDS.append(f"{strong_postc} -> (line = {self.counter} -> {postcond})")
             else:
                 self.POSTCONDS.append(f"line = {self.counter} -> {postcond}")
+                
             self.__dont_update_line_counter = True
             
         elif isinstance(node.value, ast.UnaryOp):
             assert isinstance(node.value.op, ast.USub), "not USub()!"
             return f"(- {self.visit(node.value.operand)})"
+        
         else:
             return self.generic_visit(node)
 
         
-    def visit_range(self, args: list):
+    def visit_range(self, args: list, var_name: str):
         if len(args) == 1:
             return [0, self.visit(args[0]), 1], ast.Lt()
+        
         elif len(args) == 2:
             return [self.visit(args[0]), self.visit(args[1]), 1], ast.Lt()
+        
         else:
-            # TODO!!!! Bug: non è che se ci sono tre argomenti il terzo
-            # è necessariamente negativo!
-            return [self.visit(arg) for arg in args], ast.Gt() 
-
+            v_a, v_b, v_s = [self.visit(arg) for arg in args]
+            step = args[-1] # AST, not string!
+            if is_costant(step):
+                try:
+                    comp = ast.Gt() if ast.literal_eval(step) < 0 else ast.Lt()
+                    return [v_a,v_b,v_s], comp
+                except (ValueError, TypeError):
+                    pass
             
+            return [v_a, v_b, v_s], templates.nontrivial_range(var_name, args)
+
+        
     def visit_For(self, node):
         """  for x in range(a, b, c)
 
@@ -367,8 +394,17 @@ class MyVisitor(ast.NodeTransformer):
         
         assert node.iter.func.id == "range", "for doesn't use range()"
         
-        [a, b, s], comparison = self.visit_range(node.iter.args)
+        [a, b, s], comparison = self.visit_range(node.iter.args, var_name)
 
+        if isinstance(comparison, (ast.Lt, ast.Gt)):
+            test = ast.Compare(
+                    left=ast.Name(id=var_name, ctx=ast.Load()),
+                    ops=[comparison],
+                    comparators=[ast.Constant(value=b, kind=None)],
+                )
+        else:
+            test = comparison
+            
         increment_ast = ast.AugAssign(
             target=ast.Name(id=var_name, ctx=ast.Store()),
             op=ast.Add(),
@@ -382,11 +418,7 @@ class MyVisitor(ast.NodeTransformer):
                 type_comment=None,
             ),
             ast.While(
-                test=ast.Compare(
-                    left=ast.Name(id=var_name, ctx=ast.Load()),
-                    ops=[comparison],
-                    comparators=[ast.Constant(value=b, kind=None)],
-                ),
+                test=test,
                 body=node.body + [increment_ast],
                 orelse=[],
             ),
@@ -409,14 +441,14 @@ class MyVisitor(ast.NodeTransformer):
         
         for obj in self.FLOW:
             if isinstance(obj, While):
-                out += f"\tline = {obj.loc_test} & {obj.test}: line + 1; -- while(True)\n"
+                out += f"\tline = {obj.loc_test} & ({obj.test}): line + 1; -- while(True)\n"
                 out += f"\tline = {obj.loc_test}:  {obj.loc_last + 2}; -- while(False)\n"
                 out += f"\tline = {obj.loc_last+1}: {obj.loc_test}; -- loop while\n"
             elif isinstance(obj, If):                
-                out += f"\tline = {obj.loc_test} & {obj.test}: line + 1; -- if(True)\n"
+                out += f"\tline = {obj.loc_test} & ({obj.test}): line + 1; -- if(True)\n"
                 out += f"\tline = {obj.loc_test}: {obj.loc_last + 2}; -- if(False)\n"
             elif isinstance(obj, IfElse): 
-                out += f"\tline = {obj.loc_test} & {obj.test}: line + 1; -- if(True)\n"
+                out += f"\tline = {obj.loc_test} & ({obj.test}): line + 1; -- if(True)\n"
                 out += f"\tline = {obj.loc_last_if}: {obj.loc_last + 2}; -- end if(True) \n"
                 out += f"\tline = {obj.loc_test}: {obj.loc_last_if + 2}; -- else\n"
                 
