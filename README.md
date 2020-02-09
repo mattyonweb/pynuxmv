@@ -15,11 +15,21 @@ To install it,
 	
 ## Execution
 
-From a shell, launch:
+From a shell, launch `pynuXmv`:
 
-	pynuXmv <python_fname> <nuxmv_out_fname>
+	usage: pynuXmv [-h] [--only_transpile ONLY_TRANSPILE] fname_input fname_output
+
+	positional arguments:
+		fname_input           file name input
+		fname_output          file name output
+
+	optional arguments:
+		-h, --help            show this help message and exit
+		--only_transpile ONLY_TRANSPILE
+							transpile without checking with nuxmv
+
 	
-This will transpile `python_fname` and save the result into `nuxmv_out_fname`.
+This will transpile `fname_input`, a python file, to `fname_output`, a `nuXmv` source file. If the `--only_transpile` flag is enabled, the resulting `nuXmv` file will not be executed in `nuXmv`; otherwise it will. 
 
 
 
