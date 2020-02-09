@@ -1,5 +1,6 @@
 import ast, re
 import pynuxmv.optimizations as optm
+import pynuxmv.templates as templates
 from collections import namedtuple
 from typing import Dict, List, Tuple, Union, Any
 
@@ -338,6 +339,8 @@ class MyVisitor(ast.NodeTransformer):
             
         elif postcond_tupla := self.is_postcondition(node):
             postcond, strong = postcond_tupla
+
+            # Build "strong" postcondition
             if strong:
                 strong_postc = "("
                 for s in self.POSTCONDS[:-1]:
@@ -346,11 +349,13 @@ class MyVisitor(ast.NodeTransformer):
                 self.POSTCONDS.append(f"{strong_postc} -> (line = {self.counter} -> {postcond})")
             else:
                 self.POSTCONDS.append(f"line = {self.counter} -> {postcond}")
+                
             self.__dont_update_line_counter = True
             
         elif isinstance(node.value, ast.UnaryOp):
             assert isinstance(node.value.op, ast.USub), "not USub()!"
             return f"(- {self.visit(node.value.operand)})"
+        
         else:
             return self.generic_visit(node)
 
@@ -358,60 +363,23 @@ class MyVisitor(ast.NodeTransformer):
     def visit_range(self, args: list, var_name: str):
         if len(args) == 1:
             return [0, self.visit(args[0]), 1], ast.Lt()
+        
         elif len(args) == 2:
             return [self.visit(args[0]), self.visit(args[1]), 1], ast.Lt()
+        
         else:
-            a, b, s = [self.visit(arg) for arg in args]
-            step = args[-1]
+            v_a, v_b, v_s = [self.visit(arg) for arg in args]
+            step = args[-1] # AST, not string!
             if is_costant(step):
                 try:
                     comp = ast.Gt() if ast.literal_eval(step) < 0 else ast.Lt()
-                    return [a,b,s], comp
+                    return [v_a,v_b,v_s], comp
                 except (ValueError, TypeError):
                     pass
-
-            print("a,b,s")
-            print(a); print(b); print(s)
             
-            return [a, b, s], (ast.Expr(
-             value=ast.BoolOp(
-                    op=ast.Or(),
-                    values=[
-                        ast.BoolOp(
-                            op=ast.And(),
-                            values=[
-                                ast.Compare(
-                                    left=args[2],
-                                    ops=[ast.Lt()],
-                                    comparators=[ast.Constant(value=0, kind=None)],
-                                ),
-                                ast.Compare(
-                                    left=ast.Name(id=var_name, ctx=ast.Load()),
-                                    ops=[ast.Gt()],
-                                    comparators=[args[1]],
-                                ),
-                            ],
-                        ),
-                        ast.BoolOp(
-                            op=ast.And(),
-                            values=[
-                                ast.Compare(
-                                    left=args[2],
-                                    ops=[ast.GtE()],
-                                    comparators=[ast.Constant(value=0, kind=None)],
-                                ),
-                                ast.Compare(
-                                    left=ast.Name(id=var_name, ctx=ast.Load()), 
-                                    ops=[ast.Lt()],
-                                    comparators=[args[1]],
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-            )) 
+            return [v_a, v_b, v_s], templates.nontrivial_range(var_name, args)
 
-            
+        
     def visit_For(self, node):
         """  for x in range(a, b, c)
 
