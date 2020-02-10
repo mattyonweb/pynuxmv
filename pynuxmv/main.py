@@ -2,6 +2,7 @@ import ast, re
 import pynuxmv.optimizations as optm
 import pynuxmv.templates as templates
 from collections import namedtuple
+from contextlib import contextmanager
 from typing import Dict, List, Tuple, Union, Any
 
 VarName  = str
@@ -14,6 +15,21 @@ Break  = namedtuple("Break",  ["loc",  "loc_last"])
 Assign = namedtuple("Assign", ["loc", "expr"])
 
 
+@contextmanager
+def kwarg_sub(kwargs: Dict, attribute, new_val):
+    old               = kwargs.get(attribute, None)
+    kwargs[attribute] = new_val
+
+    yield kwargs
+
+    if attribute not in kwargs:
+        pass
+    elif old is None:
+        del kwargs[attribute]
+    else:
+        kwargs[attribute] = old
+
+    
 def is_costant(node: ast.AST):
     if isinstance(node, ast.Constant):
         return True
@@ -144,6 +160,7 @@ class MyVisitor(ast.NodeTransformer):
             if var_name not in self.TYPE:
                 self.TYPE[var_name] = "integer"
                 self.INIT[var_name] = value
+                # self.NEXTS[var_name] = [Assign(self.counter, value)] #list()
                 self.NEXTS[var_name] = list()
 
                 #optimization: reduces the final number of lines
@@ -264,22 +281,20 @@ class MyVisitor(ast.NodeTransformer):
 
         start_line = self.counter
 
-        old_breaks = kwargs.get("breaks", list())
-        kwargs["breaks"]  = list()
-        
-        for cmd in node.body:
-            self.update_counter()
-            self.print("\t", end="")
-            self.visit(cmd, **kwargs) #ordine inverso?
+        with kwarg_sub(kwargs, "breaks", list()):
+            for cmd in node.body:
+                self.update_counter()
+                self.print("\t", end="")
+                self.visit(cmd, **kwargs) 
 
-        end_line = self.counter
+            end_line = self.counter
         
-        self.FLOW.append( While(test, start_line, end_line) )
-        
-        for loc in kwargs["breaks"]:
-            self.FLOW.append( Break(loc, end_line) )
-        kwargs["breaks"] = old_breaks
-        
+            self.FLOW.append( While(test, start_line, end_line) )
+
+            print(kwargs)
+            for loc in kwargs["breaks"]:
+                self.FLOW.append( Break(loc, end_line) )
+
         self.update_counter() #"spazio bianco" dopo lo while per gestire i salti
         
         
@@ -627,11 +642,21 @@ def tocode(ast_):
 
   
 ex = """
-total: bool = True
-for x in range(1, 9999999):
-  break
-  total = False
+total = 0
+for x in range(6):
+  y = 0
+  while (y < x):
+    y += 1
+  total += y
   
-ltlspec("G total", False)
+postcondition("total = 15", False)
 """
- 
+
+ex = """
+x = 9
+y = x + 1
+z = 10
+
+postcondition("x=9 & y=10 & z=10", False)
+"""
+
