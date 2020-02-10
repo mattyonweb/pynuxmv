@@ -12,7 +12,7 @@ init(y) := 1;
 init(line) := 1;
 
 next(line) := case
-	line = 2 & y < 10: line + 1; -- while(True)
+	line = 2 & (y < 10): line + 1; -- while(True)
 	line = 2:  8; -- while(False)
 	line = 7: 2; -- loop while
 	line = 8: 8; 

@@ -11,9 +11,9 @@ init(j) := 0;
 init(line) := 1;
 
 next(line) := case
-	line = 2 & j = 0: line + 1; -- if(True)
+	line = 2 & (j = 0): line + 1; -- if(True)
 	line = 2: 5; -- if(False)
-	line = 1 & i = 0: line + 1; -- if(True)
+	line = 1 & (i = 0): line + 1; -- if(True)
 	line = 1: 6; -- if(False)
 	line = 7: 7; 
 	TRUE: line + 1; 

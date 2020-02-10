@@ -64,6 +64,10 @@ expected = {
     "07-bool.xmv": "pass",
     "08-list-postconditions.xmv": "pass",
     "09-halting.xmv": "fail",
+    "10-break.xmv0": "pass",
+    "10-break.xmv1": "pass",
+    "10-break.xmv2": "pass",
+    "10-break.xmv3": "pass",
 }
 
 for fname in srcs:

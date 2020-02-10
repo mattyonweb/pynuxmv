@@ -11,9 +11,9 @@ init(b) := FALSE;
 init(line) := 1;
 
 next(line) := case
-	line = 3 & i = 5: line + 1; -- if(True)
+	line = 3 & (i = 5): line + 1; -- if(True)
 	line = 3: 6; -- if(False)
-	line = 1 & (! b = TRUE): line + 1; -- while(True)
+	line = 1 & ((! b = TRUE)): line + 1; -- while(True)
 	line = 1:  7; -- while(False)
 	line = 6: 1; -- loop while
 	line = 7: 7; 

@@ -11,15 +11,15 @@ init(b) := 0;
 init(line) := 1;
 
 next(line) := case
-	line = 6 & b = 1 & a = 1: line + 1; -- if(True)
+	line = 6 & (b = 1 & a = 1): line + 1; -- if(True)
 	line = 6: 9; -- if(False)
-	line = 3 & b = 0 & a = 1: line + 1; -- if(True)
+	line = 3 & (b = 0 & a = 1): line + 1; -- if(True)
 	line = 4: 10; -- end if(True) 
 	line = 3: 6; -- else
-	line = 10 & a = 1: line + 1; -- if(True)
+	line = 10 & (a = 1): line + 1; -- if(True)
 	line = 11: 15; -- end if(True) 
 	line = 10: 13; -- else
-	line = 2 & a + b < 2: line + 1; -- while(True)
+	line = 2 & (a + b < 2): line + 1; -- while(True)
 	line = 2:  16; -- while(False)
 	line = 15: 2; -- loop while
 	line = 16: 16; 
