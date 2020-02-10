@@ -1,0 +1,74 @@
+MODULE main
+
+VAR
+a: integer;
+b: integer;
+c: integer;
+l: array integer of integer;
+d: integer;
+total: integer;
+x: integer;
+y: integer;
+line: integer;
+
+ASSIGN
+init(a) := 1;
+init(b) := 5;
+init(c) := 10;
+init(d) := 7;
+init(total) := 0;
+init(x) := 0;
+init(y) := 0;
+init(line) := 1;
+
+next(line) := case
+	line = 8 & (y < x): line + 1; -- while(True)
+	line = 8:  11; -- while(False)
+	line = 10: 8; -- loop while
+	line = 6 & (x < 5): line + 1; -- while(True)
+	line = 6:  14; -- while(False)
+	line = 13: 6; -- loop while
+	line = 14: 14; 
+	TRUE: line + 1; 
+esac;
+
+next(a) := case
+	line = 2: a - 1;
+	TRUE: a; 
+esac;
+
+next(b) := b;
+
+next(c) := c;
+
+next(l) := case
+	line = 2: WRITE(WRITE(WRITE(l, 2, 3), 1, 2), 0, 1);
+	line = 3: WRITE(l, 2, 99);
+	line = 4: WRITE(l, 1, c);
+	line = 5: WRITE(l, a, 42);
+	TRUE: l; 
+esac;
+
+next(d) := d;
+
+next(total) := case
+	line = 11: total + y;
+	TRUE: total; 
+esac;
+
+next(x) := case
+	line = 12: x + 1;
+	TRUE: x; 
+esac;
+
+next(y) := case
+	line = 7: 0;
+	line = 9: y + 1;
+	TRUE: y; 
+esac;
+
+INVARSPEC line = 14 -> (total = 10);
+LTLSPEC F (l[2] = 99);
+LTLSPEC F (l[1] = 10);
+LTLSPEC F (l[0] = 42);
+LTLSPEC F (a = 0 & b = 5 & c = 10);

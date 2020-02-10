@@ -12,10 +12,10 @@ init(y) := 1;
 init(line) := 1;
 
 next(line) := case
-	line = 2 & (y < 10): line + 1; -- while(True)
-	line = 2:  8; -- while(False)
-	line = 7: 2; -- loop while
-	line = 8: 8; 
+	line = 2 & (y < 5): line + 1; -- while(True)
+	line = 2:  7; -- while(False)
+	line = 6: 2; -- loop while
+	line = 7: 7; 
 	TRUE: line + 1; 
 esac;
 
@@ -26,16 +26,15 @@ esac;
 
 next(y) := case
 	line = 4: y + 1;
-	line = 5: y + 0;
 	TRUE: y; 
 esac;
 
 next(l) := case
 	line = 1: WRITE(WRITE(WRITE(l, 2, 3), 1, 2), 0, 1);
-	line = 6: WRITE(l, 2, READ(l, 2) + x);
+	line = 5: WRITE(l, 2, READ(l, 2) + x);
 	TRUE: l; 
 esac;
 
-INVARSPEC line = 8 -> y = 10;
-INVARSPEC line = 8 -> x = 9;
-INVARSPEC ((line = 8 -> y = 10) & (line = 8 -> x = 9) ) -> (line = 8 -> l[2] = 48);
+INVARSPEC line = 7 -> y = 5;
+INVARSPEC line = 7 -> x = 4;
+INVARSPEC ((line = 7 -> y = 5) & (line = 7 -> x = 4) ) -> (line = 7 -> l[2] = 13);

@@ -68,6 +68,7 @@ expected = {
     "10-break.xmv1": "pass",
     "10-break.xmv2": "pass",
     "10-break.xmv3": "pass",
+    "11-assignments.xmv": "pass",
 }
 
 for fname in srcs:

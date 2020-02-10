@@ -13,6 +13,7 @@ IfElse = namedtuple("IfElse", ["test", "loc_test", "loc_last_if", "loc_last"])
 Break  = namedtuple("Break",  ["loc",  "loc_last"])
 
 Assign = namedtuple("Assign", ["loc", "expr"])
+AssignSlice = namedtuple("AssignSlice", ["loc", "base", "idx", "expr"])
 
 
 @contextmanager
@@ -32,6 +33,14 @@ def kwarg_sub(dict_: Dict, **kwargs):
             del dict_[attribute]
         else:
             dict_[attribute] = old_val
+
+@contextmanager
+def kwarg_consume(dict_: Dict, attr):
+    try:
+        yield dict_.pop(attr)
+    except Exception as e:
+        print(f"Couldnt find {attr} in {dict_}")
+        raise e
 
     
 def is_costant(node: ast.AST):
@@ -136,45 +145,64 @@ class MyVisitor(ast.NodeTransformer):
 
         if isinstance(node.ctx, ast.Load):
             return f"READ({base}, {slice_})"
+        elif kwargs.get("inside_assignment", False): # da togliere
+            new_value = kwargs["value"]
+            return f"WRITE({base}, {slice_}, {new_value})"
+
+
+    Assign = namedtuple("Assign", ["loc", "expr"])
+    AssignSlice = namedtuple("AssignSlice", ["loc", "base", "idx", "expr"])
+
+    
+    def visit_generic_assignment(self, node, **kwargs):
+        assert len(node.targets) == 1
+        assert isinstance(node, ast.Assign)
+
+        new_value = self.visit(node.value)
+        target    = node.targets[0]
+        
+        if isinstance(target, ast.Subscript):
+            base   = self.visit(target.value, **kwargs)
+            slice_ = self.visit(target.slice.value, **kwargs)
+
+            return base, f"WRITE({base}, {slice_}, {new_value})"
         else:
-            return base
+            return self.visit(target), new_value 
+
     
            
     def visit_Assign(self, node, **kwargs):
         # a, b = 1, 2
         if isinstance(node.targets[0], ast.Tuple):
-            originals = [n for n in node.targets[0].elts]
-            var_names = [n.id for n in node.targets[0].elts] #TODO self.visit()
-            values    = [self.visit(n, **kwargs) for n in node.value.elts]
-        else: # a = 2
-            originals = [node.targets[0]]
-            var_names = [self.visit(node.targets[0], **kwargs)] 
-            values    = [self.visit(node.value, **kwargs)]
-
-        for i, (var_name, value) in enumerate(zip(var_names, values)):
-
-            if isinstance(originals[i], ast.Subscript):
-                idx = self.visit(originals[i].slice.value, **kwargs)
-                self.NEXTS[var_name].append(
-                    Assign(self.counter, f"WRITE({var_name}, {idx}, {value})")
-                )
-                continue
+            var_names, values = [], []
             
+            for left, right in zip(node.targets[0].elts, node.value.elts):
+                assignment      = ast.Assign(targets=[left], value=right, type_comment=None)
+                var_name, value = self.visit_generic_assignment(assignment, **kwargs)
+                var_names.append(var_name)
+                values.append(value)
+
+        else: # a = 2
+            var_name, value = self.visit_generic_assignment(node, **kwargs) 
+            var_names, values = [var_name], [value]
+
+            
+        for var_name, value in zip(var_names, values):
             if var_name not in self.TYPE:
                 self.TYPE[var_name] = "integer"
                 self.INIT[var_name] = value
+                
                 if kwargs.get("inside_loop", False):
-                    self.NEXTS[var_name] = [Assign(self.counter, value)] #list()
+                    self.NEXTS[var_name] = [Assign(self.counter, value)]
                 else:
                     self.NEXTS[var_name] = list()
-
-                    #optimization: reduces the final number of lines
-                    # ==> less states for nuxmv to examine
+                    #optimization: reduces the final number of states
                     self.__dont_update_line_counter = True 
             else:
                 self.NEXTS[var_name].append(Assign(self.counter, value))
 
             self.print( f"{var_name} := {value}")
+            
         return( f"{var_names} := {values}")
             
 
@@ -647,14 +675,27 @@ def tocode(ast_):
 
   
 ex = """
+a = 1
+a, b, c = a-1, 5, 10
+l: list = [1,2,3]
+l[2] = 99
+l[1] = c
+d, l[a] = 7, 42
+
 total = 0
 for x in range(6):
   y = 0
-  while (y < x):
+  while y < x:
     y += 1
   total += y
-  
-postcondition("total = 15", False)
+
+
+ltlspec("F (l[2] = 99)")
+ltlspec("F (l[1] = 10)")
+ltlspec("F (l[0] = 42)")
+postcondition("(total = 15)", False)
+ltlspec("F (a = 0 & b = 5 & c = 10)")
+
 """
 
 # ex = """
