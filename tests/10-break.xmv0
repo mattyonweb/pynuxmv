@@ -1,0 +1,27 @@
+MODULE main
+
+VAR
+x: integer;
+line: integer;
+
+ASSIGN
+init(x) := 0;
+init(line) := 1;
+
+next(line) := case
+	line = 4 & (x = 10): line + 1; -- if(True)
+	line = 4: 7; -- if(False)
+	line = 2 & (TRUE): line + 1; -- while(True)
+	line = 2:  8; -- while(False)
+	line = 7: 2; -- loop while
+	line = 5: 8; -- break
+	line = 8: 8; 
+	TRUE: line + 1; 
+esac;
+
+next(x) := case
+	line = 3: x + 1;
+	TRUE: x; 
+esac;
+
+LTLSPEC F x = 10;

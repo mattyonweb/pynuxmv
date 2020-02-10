@@ -1,0 +1,32 @@
+MODULE main
+
+VAR
+total: boolean;
+x: integer;
+line: integer;
+
+ASSIGN
+init(total) := TRUE;
+init(x) := 1;
+init(line) := 1;
+
+next(line) := case
+	line = 3 & (x < 9999999): line + 1; -- while(True)
+	line = 3:  8; -- while(False)
+	line = 7: 3; -- loop while
+	line = 4: 8; -- break
+	line = 8: 8; 
+	TRUE: line + 1; 
+esac;
+
+next(total) := case
+	line = 5: FALSE;
+	TRUE: total; 
+esac;
+
+next(x) := case
+	line = 6: x + 1;
+	TRUE: x; 
+esac;
+
+LTLSPEC G total;
