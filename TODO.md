@@ -5,7 +5,7 @@
   + [ ] Add `range(n, m)` support, with `n, m` not explicit
 + [*] Add `not` in boolean clauses
 + [ ] Add `break`
-+ [ ] Add `continue`
++ [+] Add `continue`
 + [ ] Add `elif`
 + [*] Add support for `boolean` type
 + [ ] Add support for functions
