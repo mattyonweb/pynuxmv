@@ -2,6 +2,7 @@ import ast, re
 import pynuxmv.optimizations as optm
 import pynuxmv.templates as templates
 from collections import namedtuple
+from contextlib import contextmanager
 from typing import Dict, List, Tuple, Union, Any
 
 VarName  = str
@@ -14,6 +15,25 @@ Break  = namedtuple("Break",  ["loc",  "loc_last"])
 Assign = namedtuple("Assign", ["loc", "expr"])
 
 
+@contextmanager
+def kwarg_sub(dict_: Dict, **kwargs):
+    olds = dict()
+    
+    for attribute, new_val in kwargs.items():
+        olds[attribute]  = dict_.get(attribute, None)
+        dict_[attribute] = new_val
+
+    yield dict_
+
+    for attribute, old_val in olds.items():
+        if attribute not in dict_:
+            pass #sicuro che è giusto?
+        elif old_val is None:
+            del dict_[attribute]
+        else:
+            dict_[attribute] = old_val
+
+    
 def is_costant(node: ast.AST):
     if isinstance(node, ast.Constant):
         return True
@@ -133,7 +153,6 @@ class MyVisitor(ast.NodeTransformer):
 
         for i, (var_name, value) in enumerate(zip(var_names, values)):
 
-            #diocan
             if isinstance(originals[i], ast.Subscript):
                 idx = self.visit(originals[i].slice.value, **kwargs)
                 self.NEXTS[var_name].append(
@@ -144,11 +163,14 @@ class MyVisitor(ast.NodeTransformer):
             if var_name not in self.TYPE:
                 self.TYPE[var_name] = "integer"
                 self.INIT[var_name] = value
-                self.NEXTS[var_name] = list()
+                if kwargs.get("inside_loop", False):
+                    self.NEXTS[var_name] = [Assign(self.counter, value)] #list()
+                else:
+                    self.NEXTS[var_name] = list()
 
-                #optimization: reduces the final number of lines
-                # ==> less states for nuxmv to examine
-                self.__dont_update_line_counter = True 
+                    #optimization: reduces the final number of lines
+                    # ==> less states for nuxmv to examine
+                    self.__dont_update_line_counter = True 
             else:
                 self.NEXTS[var_name].append(Assign(self.counter, value))
 
@@ -246,7 +268,6 @@ class MyVisitor(ast.NodeTransformer):
             ast.Or : "|", ast.And: "&"
         }
         op = node.op
-        # arg1, arg2 = [self.visit(arg) for arg in node.values]
         args = [self.visit(arg, **kwargs) for arg in node.values]
 
         out = f"{args[0]}"
@@ -257,6 +278,7 @@ class MyVisitor(ast.NodeTransformer):
     
     def visit_Break(self, node, **kwargs):
         kwargs["breaks"].append(self.counter)
+        # kwargs.get("breaks", list()).append(self.counter) #???
     
     def visit_While(self, node, **kwargs):
         self.print("While: ", end="")
@@ -264,22 +286,20 @@ class MyVisitor(ast.NodeTransformer):
 
         start_line = self.counter
 
-        old_breaks = kwargs.get("breaks", list())
-        kwargs["breaks"]  = list()
-        
-        for cmd in node.body:
-            self.update_counter()
-            self.print("\t", end="")
-            self.visit(cmd, **kwargs) #ordine inverso?
+        empty_list = []
+        with kwarg_sub(kwargs, breaks=empty_list, inside_loop=True):
+            for cmd in node.body:
+                self.update_counter()
+                self.print("\t", end="")
+                self.visit(cmd, **kwargs) 
 
-        end_line = self.counter
+            end_line = self.counter
         
-        self.FLOW.append( While(test, start_line, end_line) )
-        
-        for loc in kwargs["breaks"]:
-            self.FLOW.append( Break(loc, end_line) )
-        kwargs["breaks"] = old_breaks
-        
+            self.FLOW.append( While(test, start_line, end_line) )
+
+            for loc in kwargs["breaks"]:
+                self.FLOW.append( Break(loc, end_line) )
+
         self.update_counter() #"spazio bianco" dopo lo while per gestire i salti
         
         
@@ -627,11 +647,21 @@ def tocode(ast_):
 
   
 ex = """
-total: bool = True
-for x in range(1, 9999999):
-  break
-  total = False
+total = 0
+for x in range(6):
+  y = 0
+  while (y < x):
+    y += 1
+  total += y
   
-ltlspec("G total", False)
+postcondition("total = 15", False)
 """
- 
+
+# ex = """
+# x = 9
+# y = x + 1
+# z = 10
+
+# postcondition("x=9 & y=10 & z=10", False)
+# """
+
