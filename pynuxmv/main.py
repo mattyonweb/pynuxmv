@@ -16,18 +16,22 @@ Assign = namedtuple("Assign", ["loc", "expr"])
 
 
 @contextmanager
-def kwarg_sub(kwargs: Dict, attribute, new_val):
-    old               = kwargs.get(attribute, None)
-    kwargs[attribute] = new_val
+def kwarg_sub(dict_: Dict, **kwargs):
+    olds = dict()
+    
+    for attribute, new_val in kwargs.items():
+        olds[attribute]  = dict_.get(attribute, None)
+        dict_[attribute] = new_val
 
-    yield kwargs
+    yield dict_
 
-    if attribute not in kwargs:
-        pass
-    elif old is None:
-        del kwargs[attribute]
-    else:
-        kwargs[attribute] = old
+    for attribute, old_val in olds.items():
+        if attribute not in dict_:
+            pass #sicuro che è giusto?
+        elif old_val is None:
+            del dict_[attribute]
+        else:
+            dict_[attribute] = old_val
 
     
 def is_costant(node: ast.AST):
@@ -149,7 +153,6 @@ class MyVisitor(ast.NodeTransformer):
 
         for i, (var_name, value) in enumerate(zip(var_names, values)):
 
-            #diocan
             if isinstance(originals[i], ast.Subscript):
                 idx = self.visit(originals[i].slice.value, **kwargs)
                 self.NEXTS[var_name].append(
@@ -160,12 +163,14 @@ class MyVisitor(ast.NodeTransformer):
             if var_name not in self.TYPE:
                 self.TYPE[var_name] = "integer"
                 self.INIT[var_name] = value
-                # self.NEXTS[var_name] = [Assign(self.counter, value)] #list()
-                self.NEXTS[var_name] = list()
+                if kwargs.get("inside_loop", False):
+                    self.NEXTS[var_name] = [Assign(self.counter, value)] #list()
+                else:
+                    self.NEXTS[var_name] = list()
 
-                #optimization: reduces the final number of lines
-                # ==> less states for nuxmv to examine
-                self.__dont_update_line_counter = True 
+                    #optimization: reduces the final number of lines
+                    # ==> less states for nuxmv to examine
+                    self.__dont_update_line_counter = True 
             else:
                 self.NEXTS[var_name].append(Assign(self.counter, value))
 
@@ -263,7 +268,6 @@ class MyVisitor(ast.NodeTransformer):
             ast.Or : "|", ast.And: "&"
         }
         op = node.op
-        # arg1, arg2 = [self.visit(arg) for arg in node.values]
         args = [self.visit(arg, **kwargs) for arg in node.values]
 
         out = f"{args[0]}"
@@ -274,6 +278,7 @@ class MyVisitor(ast.NodeTransformer):
     
     def visit_Break(self, node, **kwargs):
         kwargs["breaks"].append(self.counter)
+        # kwargs.get("breaks", list()).append(self.counter) #???
     
     def visit_While(self, node, **kwargs):
         self.print("While: ", end="")
@@ -281,7 +286,8 @@ class MyVisitor(ast.NodeTransformer):
 
         start_line = self.counter
 
-        with kwarg_sub(kwargs, "breaks", list()):
+        empty_list = []
+        with kwarg_sub(kwargs, breaks=empty_list, inside_loop=True):
             for cmd in node.body:
                 self.update_counter()
                 self.print("\t", end="")
@@ -291,7 +297,6 @@ class MyVisitor(ast.NodeTransformer):
         
             self.FLOW.append( While(test, start_line, end_line) )
 
-            print(kwargs)
             for loc in kwargs["breaks"]:
                 self.FLOW.append( Break(loc, end_line) )
 
@@ -652,11 +657,11 @@ for x in range(6):
 postcondition("total = 15", False)
 """
 
-ex = """
-x = 9
-y = x + 1
-z = 10
+# ex = """
+# x = 9
+# y = x + 1
+# z = 10
 
-postcondition("x=9 & y=10 & z=10", False)
-"""
+# postcondition("x=9 & y=10 & z=10", False)
+# """
 

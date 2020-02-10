@@ -15,41 +15,43 @@ init(z) := 99;
 init(line) := 1;
 
 next(line) := case
-	line = 7 & (z < 9999): line + 1; -- while(True)
-	line = 7:  12; -- while(False)
-	line = 11: 7; -- loop while
-	line = 8: 12; -- break
-	line = 5 & (y < 1587624): line + 1; -- while(True)
-	line = 5:  16; -- while(False)
-	line = 15: 5; -- loop while
-	line = 12: 16; -- break
+	line = 9 & (z < 9999): line + 1; -- while(True)
+	line = 9:  14; -- while(False)
+	line = 13: 9; -- loop while
+	line = 10: 14; -- break
+	line = 6 & (y < 1587624): line + 1; -- while(True)
+	line = 6:  18; -- while(False)
+	line = 17: 6; -- loop while
+	line = 14: 18; -- break
 	line = 3 & (x < 9999999): line + 1; -- while(True)
-	line = 3:  20; -- while(False)
-	line = 19: 3; -- loop while
-	line = 16: 20; -- break
-	line = 20: 20; 
+	line = 3:  22; -- while(False)
+	line = 21: 3; -- loop while
+	line = 18: 22; -- break
+	line = 22: 22; 
 	TRUE: line + 1; 
 esac;
 
 next(total) := case
-	line = 9: FALSE;
-	line = 13: FALSE;
-	line = 17: FALSE;
+	line = 11: FALSE;
+	line = 15: FALSE;
+	line = 19: FALSE;
 	TRUE: total; 
 esac;
 
 next(x) := case
-	line = 18: x + 1;
+	line = 20: x + 1;
 	TRUE: x; 
 esac;
 
 next(y) := case
-	line = 14: y + 1;
+	line = 5: 29423;
+	line = 16: y + 1;
 	TRUE: y; 
 esac;
 
 next(z) := case
-	line = 10: z + 77;
+	line = 8: 99;
+	line = 12: z + 77;
 	TRUE: z; 
 esac;
 
